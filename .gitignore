@@ -1,0 +1,18 @@
+# Dependencies and generated output, across all games.
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+
+# Local environment and credentials.
+.env
+.env.*
+!.env.example
+.aws/
+.codex/
+
+# OS/editor files.
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,14 @@
+{
+  "name": "jazzskier-games",
+  "version": "1.0.0",
+  "private": true,
+  "description": "原创中文浏览器小游戏合集",
+  "workspaces": ["apps/*"],
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "dev": "npm run dev --workspace=cloud-garden",
+    "preview": "npm run preview --workspace=cloud-garden",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  }
+}

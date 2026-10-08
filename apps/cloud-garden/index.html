@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="#f5f1e6"/><meta name="description" content="背上小花园，去云端走走。一段温柔的原创攀登冒险。"/><title>云上花园 · 一起往光里走</title></head>
+<body>
+  <div class="page">
+    <header class="site-header"><a class="brand" href="./"><span class="brand-mark">❧</span><span>云上花园<small>一段小小的云间旅行</small></span></a><nav aria-label="游戏导航"><span class="chapter-tag" id="chapter-tag">第 1 / 21 关 · 简单</span><button id="map-open" class="quiet-button" disabled>❀ 旅程地图</button><button id="sound" class="quiet-button" aria-pressed="false">♫ 声音关闭</button></nav></header>
+    <main>
+      <div class="section-heading"><div><span class="eyebrow">背上花园 · 出发去冒险</span><h1>一起，往光里走。</h1></div><p>跳过一朵云，收集一缕光。<br/>让背上的小花园，慢慢盛开。</p></div>
+      <section class="game-card" aria-label="云上花园游戏">
+        <div class="game-topbar"><div class="chapter"><span class="chapter-number" id="chapter-number">01</span><span><b id="chapter-name">风起的地方</b><small id="state-label">新手旅程 · 慢慢来就好</small></span></div><div class="stats"><div><span class="sun-symbol">✺</span><b id="score">0</b><small>阳光</small></div><div class="progress-stat"><b id="height">0 / 10</b><small>云岛</small></div><button id="pause" class="icon-button" aria-label="暂停游戏" disabled>Ⅱ</button></div></div>
+        <div class="stage-wrap">
+          <div id="game" aria-label="游戏画面"></div>
+          <div id="loading" class="loading">正在装好口袋里的阳光…</div>
+          <div class="stage-vignette"></div>
+          <div class="stage-label"><span class="leaf-dot"></span><span id="biome-name">微风草甸 · 晴</span></div>
+          <div id="tutorial" class="tutorial hidden" aria-live="polite"><span class="tutorial-step" id="tutorial-step">第一步</span><div><strong id="tutorial-title">试着跳上第一座云岛</strong><p id="tutorial-copy">按空格跳跃，方向键左右移动。</p></div></div>
+          <div id="overlay" class="overlay"><div class="welcome-copy"><span class="eyebrow" id="overlay-label">第 1 / 21 关 · 风起的地方</span><h2 id="overlay-title">小小花园，<br/>大大冒险。</h2><p id="overlay-copy">跟着阳光，去云层上散散步。<br/>不小心掉下去？叶子会接住你。</p><button id="start" class="primary" disabled>正在准备…</button><span id="best" class="welcome-note">21 关旅程 · 小花记忆 · 不限重试</span></div><img class="hero-creature" src="./assets/garden-traveler.png" alt="背着叶子和花苞，系着围巾的花园旅行兽"/><span class="creature-caption">把春天背在身上的小家伙。</span></div>
+          <div id="toast" class="toast" role="status"></div>
+          <div class="journey-track" aria-label="关卡进度"><i id="progress-fill"></i></div>
+        </div>
+        <div class="control-bar"><div class="keyboard-guide"><span><kbd>←</kbd><kbd>→</kbd> 移动</span><span><kbd>空格</kbd> 跳跃</span><span><kbd>J</kbd> 叶子挥击</span></div><span class="safe-note">❀ 小花记忆 · 跌落可返回</span><button id="restart" class="text-button">重玩本关 ↻</button></div>
+        <div class="touch-controls"><div><button data-control="left" aria-label="向左">←</button><button data-control="right" aria-label="向右">→</button></div><div><button data-control="attack" aria-label="叶子挥击">挥叶</button><button class="jump" data-control="jump" aria-label="跳跃">跳跃 ↑</button></div></div>
+      </section>
+      <section class="below-game" aria-label="旅程提示"><div class="field-note"><span class="note-number">旅途手记 / 01</span><h3>每一步，都有小惊喜。</h3><p>宽宽的浮岛、暖暖的阳光，还有背上那朵等着盛开的花。</p></div><div class="mini-note"><span>✺</span><div><b>顺着阳光走</b><p>收集光点，小花也会开心。</p></div></div><div class="mini-note"><span>❧</span><div><b>放心试一试</b><p>小花绽放，就记住这里。</p></div></div><div class="record"><small>本关最佳</small><strong id="record">0</strong><span>分</span></div></section>
+    </main><footer><span>云上花园 · 给每一个愿意出发的你</span><span>原创角色与场景 / 21 关云间旅程</span></footer>
+  </div>
+  <dialog id="stage-map" class="stage-map" aria-labelledby="map-title">
+    <div class="map-heading"><div><span class="eyebrow">把春天，送到每一座云岛</span><h2 id="map-title">花园旅行地图</h2><p id="map-summary">21 关旅程 · 自由选关</p></div><button id="map-close" class="icon-button" aria-label="关闭旅程地图">×</button></div>
+    <div class="difficulty-legend"><span class="difficulty-E">E 简单 · 宽平台</span><span class="difficulty-M">M 中等 · 灵巧跳跃</span><span class="difficulty-H">H 困难 · 高空侧风</span></div>
+    <div id="stage-grid" class="stage-grid"></div>
+    <p class="map-note">❀ 已通关的花园会开花。关卡进度和每关最佳分数保存在这台设备上。</p>
+  </dialog><script type="module" src="/src/main.ts"></script>
+</body></html>
