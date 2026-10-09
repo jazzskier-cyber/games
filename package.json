@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "npm run dev --workspace=cloud-garden",
     "preview": "npm run preview --workspace=cloud-garden",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspace=cloud-garden && node -e \"require('node:fs').cpSync('apps/cloud-garden/dist', 'dist', { recursive: true })\"",
     "test": "npm run test --workspaces --if-present"
   }
 }

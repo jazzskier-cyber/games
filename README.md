@@ -37,7 +37,7 @@ npm run dev
 | --- | --- |
 | `npm run dev` | 开发默认游戏：云上花园 |
 | `npm test` | 运行全部游戏的测试 |
-| `npm run build` | 检查类型并构建全部游戏 |
+| `npm run build` | 构建默认游戏并额外生成仓库根目录 `dist/`，适用于游戏平台发布 |
 | `npm run preview` | 预览云上花园的生产构建 |
 | `npm run dev --workspace=cloud-garden` | 按名称启动指定游戏 |
 | `npm run build --workspace=cloud-garden` | 只构建指定游戏 |
@@ -81,7 +81,7 @@ npm run build
 
 云上花园目前包含 52 项自动测试，覆盖全部 21 关在 30fps 和 60fps 下正常输入通关、难度顺序、检查点、碰撞和存档。界面、音效和手机触摸手感仍需实际浏览器试玩。
 
-各游戏分别输出到自己的 `dist/`，例如 `apps/cloud-garden/dist/`。静态托管时，只上传相应游戏的 `dist/`；不要把源码目录当作发布目录。云上花园使用相对资源路径，支持子目录部署。
+单独运行 `npm run build --workspace=cloud-garden` 会输出到 `apps/cloud-garden/dist/`。根目录的 `npm run build` 会将默认游戏构建到该目录，再复制到仓库根目录 `dist/`，以兼容要求 `npm ci`、`npm run build` 和根目录 `dist/` 的游戏平台。根目录 `index.html` 为仓库入口提示；游戏源码仍整理在 `apps/cloud-garden/`。云上花园使用相对资源路径，支持子目录部署。
 
 GitHub 保存源码并不等于已部署游戏；本仓库未自动开启 GitHub Pages，也未自动提交到游戏平台。
 
