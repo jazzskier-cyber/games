@@ -6,9 +6,10 @@
   "workspaces": ["apps/*"],
   "engines": { "node": ">=22.12.0" },
   "scripts": {
-    "dev": "npm run dev --workspace=cloud-garden",
-    "preview": "npm run preview --workspace=cloud-garden",
-    "build": "npm run build --workspace=cloud-garden && node -e \"require('node:fs').cpSync('apps/cloud-garden/dist', 'dist', { recursive: true })\"",
+    "dev": "vite --host 127.0.0.1",
+    "preview": "vite preview --host 127.0.0.1",
+    "build": "tsc --noEmit -p apps/cloud-garden/tsconfig.json && vite build",
     "test": "npm run test --workspaces --if-present"
-  }
+  },
+  "devDependencies": { "vite": "^7.3.7" }
 }
