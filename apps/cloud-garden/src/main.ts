@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import './style.css';
 import './map.css';
 import { WIDTH, HEIGHT, Journey, type Platform, type Event } from './world';
-import { STAGES, DIFFICULTY_NAMES, getStage, nextStage, readCampaign, completeStage } from './stages';
+import { STAGES, DIFFICULTY_NAMES, getStage, nextStage, readCampaign, completeStage, type RouteStyle } from './stages';
 
 const el = (id: string) => document.getElementById(id)!;
 const button = (id: string) => el(id) as HTMLButtonElement;
@@ -39,6 +39,15 @@ const lessons = [
   ['小伙伴', '前面有调皮的绒球', '按 J 用叶子轻轻赶走它，也可以跳过去。'],
   ['快到了', '花园就在上面，继续向着光', '抵达最后的花台，让背上的小花园盛开。'],
 ];
+const routeHints: Record<RouteStyle, [string, string]> = {
+  zigzag: ['左右交错', '云岛左右交替，跟着路线来回跳。'],
+  crescent: ['沿弧线攀爬', '顺着弯弯的云路，慢慢向上。'],
+  switchback: ['连续折返', '看准下一朵云，再转向起跳。'],
+  spiral: ['绕着云岛上行', '路线会绕弯，别急着直冲。'],
+  stepping: ['踏石寻路', '小平台错落排列，落稳再出发。'],
+  drift: ['云路漂移', '平台会逐渐偏向一侧，留意落点。'],
+  'cloud-hop': ['远近云岛', '远近交替的云岛，记得提前调整方向。'],
+};
 class Garden extends Phaser.Scene {
   private world = new Journey(campaign.selected);
   private mode: Mode = 'ready';
@@ -115,8 +124,8 @@ class Garden extends Phaser.Scene {
       const cleared = campaign.scores[stage.number] !== undefined;
       entry.classList.toggle('cleared', cleared);
       if (stage.number === this.world.stage.number) entry.setAttribute('aria-current', 'true');
-      entry.innerHTML = '<span class="stage-choice-top"><b>' + String(stage.number).padStart(2, '0') + '</b><span>' + (cleared ? '❀' : '♧') + '</span></span><strong>' + stage.name + '</strong><small>' + DIFFICULTY_NAMES[stage.difficulty] + ' · ' + stage.islands + ' 座云岛</small><em>' + (cleared ? '已盛开 · ' + campaign.scores[stage.number] + ' 分' : stage.biome.name) + '</em>';
-      entry.setAttribute('aria-label', '第 ' + stage.number + ' 关，' + stage.name + '，' + DIFFICULTY_NAMES[stage.difficulty] + (cleared ? '，已通关' : ''));
+      entry.innerHTML = '<span class="stage-choice-top"><b>' + String(stage.number).padStart(2, '0') + '</b><span>' + (cleared ? '❀' : '♧') + '</span></span><strong>' + stage.name + '</strong><small>' + DIFFICULTY_NAMES[stage.difficulty] + ' · ' + stage.islands + ' 座云岛</small><em>' + (cleared ? '已盛开 · ' + campaign.scores[stage.number] + ' 分' : stage.biome.name) + (stage.meteorInterval ? ' · ☄ 流星' : '') + '</em>';
+      entry.setAttribute('aria-label', '第 ' + stage.number + ' 关，' + stage.name + '，' + DIFFICULTY_NAMES[stage.difficulty] + (stage.meteorInterval ? '，有流星预警' : '') + (cleared ? '，已通关' : ''));
       entry.onclick = () => { (el('stage-map') as HTMLDialogElement).close(); this.start(stage.number); };
       grid.append(entry);
     }
@@ -124,7 +133,8 @@ class Garden extends Phaser.Scene {
   }
   private showIntro() {
     const stage = this.world.stage;
-    if (stage.number !== 1) this.showOverlay(stage.name, '第 ' + stage.number + ' 关 · ' + DIFFICULTY_NAMES[stage.difficulty] + '。' + (stage.wind ? '高空会有侧风，留意飘动的风线。' : '循着阳光出发，让沿途的小花记住你。'), '出发去这一关  ↗');
+    const detail = stage.meteorInterval ? '☄ 本关有流星！看到「!」和光柱就横向躲开。' : stage.wind ? '高空有侧风，留意飘动的风线。' : routeHints[stage.route][1];
+    if (stage.number !== 1) this.showOverlay(stage.name, '第 ' + stage.number + ' 关 · ' + DIFFICULTY_NAMES[stage.difficulty] + '。' + detail, '出发去这一关  ↗');
     el('best').textContent = '第 ' + stage.number + ' / ' + STAGES.length + ' 关 · ' + DIFFICULTY_NAMES[stage.difficulty] + ' · 小花自动记忆';
   }
   private clearInput() { for (const key of Object.keys(touch) as (keyof typeof touch)[]) touch[key] = false; this.input.keyboard?.resetKeys(); this.world.releaseInput(); }
@@ -132,7 +142,7 @@ class Garden extends Phaser.Scene {
     this.platformSprites.forEach(sprite => sprite.destroy()); this.platformSprites = [];
     this.labels.forEach(label => label.destroy()); this.labels = [];
     for (const p of this.world.platforms) if (!p.breakable) {
-      const sprite = this.add.image(p.x, p.y, 'island').setOrigin(0, 0).setDisplaySize(p.w, p.row === 0 ? 110 : 62);
+      const sprite = this.add.image(p.x, p.y, 'island').setOrigin(0, 0).setDisplaySize(p.w, p.row === 0 ? 110 : 62).setTint(this.world.stage.biome.platform);
       sprite.setData('platform', p); this.platformSprites.push(sprite); this.root.addAt(sprite, 0);
       if (p.row === 0) {
         const label = this.add.text(p.x + p.w - 25, p.y, '从这里出发', { fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif', fontSize: '10px', color: '#73815e', backgroundColor: '#faf5de', padding: { x: 7, y: 4 } }).setOrigin(1, 1);
@@ -188,7 +198,10 @@ class Garden extends Phaser.Scene {
     if (event.type === 'collect') { this.burst(event.x, event.y, 0xeac778); tone(760, .18); }
     if (event.type === 'break') { this.burst(event.x, event.y, 0x9cbdad); tone(360); this.toast('晶石碎开了！发现一小缕阳光。'); }
     if (event.type === 'enemy') { this.burst(event.x, event.y, 0xc6bbd0); tone(620); this.toast('绒球让开了，继续向上吧。'); }
-    if (event.type === 'rescue') { this.burst(event.x, event.y, 0xa9bf87, 18); this.toast('叶子接住你啦！小花在这里等你。'); tone(420, .25); }
+    if (event.type === 'meteor-warning') this.toast('流星预警！离开「!」下方的光柱');
+    if (event.type === 'meteor-hit') { this.burst(event.x, event.y, 0xc88361, 10); tone(300, .22); }
+    if (event.type === 'meteor-land') this.burst(event.x, event.y, 0xc99575, 7);
+    if (event.type === 'rescue') { this.burst(event.x, event.y, 0xa9bf87, 18); this.toast(event.cause === 'meteor' ? '流星砸中啦！小花把你送回最近的花朵旁。' : '叶子接住你啦！小花在这里等你。'); tone(420, .25); }
     if (event.type === 'win') this.win();
   }
   private updateHUD() {
@@ -197,7 +210,7 @@ class Garden extends Phaser.Scene {
     el('score').textContent = String(w.collected); el('height').textContent = w.highest + ' / ' + stage.islands; el('record').textContent = String(campaign.scores[stage.number] ?? 0);
     el('chapter-number').textContent = String(stage.number).padStart(2, '0'); el('chapter-name').textContent = stage.name;
     el('chapter-tag').textContent = '第 ' + stage.number + ' / ' + STAGES.length + ' 关 · ' + DIFFICULTY_NAMES[stage.difficulty];
-    el('biome-name').textContent = stage.biome.name + (stage.wind ? ' · 有风' : ' · 晴');
+    el('biome-name').textContent = stage.biome.name + (stage.meteorInterval ? ' · 流星雨' : stage.wind ? ' · 有风' : ' · 晴');
     el('progress-fill').style.width = w.highest / stage.islands * 100 + '%';
     el('state-label').textContent = ({ ready: DIFFICULTY_NAMES[stage.difficulty] + ' · 小花陪你慢慢走', playing: DIFFICULTY_NAMES[stage.difficulty] + ' · 已唤醒 ' + w.highest + ' 朵小花', paused: '休息一下 · 小花在等你', won: '本关完成 · 花园已盛开' })[this.mode];
     button('pause').textContent = this.mode === 'paused' ? '▶' : 'Ⅱ'; button('pause').setAttribute('aria-label', this.mode === 'paused' ? '继续游戏' : '暂停游戏');
@@ -206,9 +219,9 @@ class Garden extends Phaser.Scene {
       this.lesson = n; el('tutorial-step').textContent = lessons[n][0]; el('tutorial-title').textContent = lessons[n][1];
       el('tutorial-copy').textContent = matchMedia('(pointer: coarse)').matches ? lessons[n][2].replace('空格 / W / ↑', '右下角「跳跃」').replace('← → / A、D', '左下角箭头').replace('按 J', '按「挥叶」') : lessons[n][2];
       if (stage.number > 1) {
-        el('tutorial-step').textContent = DIFFICULTY_NAMES[stage.difficulty];
-        el('tutorial-title').textContent = stage.wind ? '风在推着叶子，稳稳跳过去' : stage.difficulty === 'M' ? '云岛更小了，看准再起跳' : '跟着阳光，让小花一路盛开';
-        el('tutorial-copy').textContent = stage.wind ? '空中有左右侧风；花朵依然会记住每座新云岛。' : stage.difficulty === 'M' ? '绒球走得更快；用叶子挥击，也可以从上方跳过。' : '没有时间限制，跌落也不会丢失阳光。';
+        el('tutorial-step').textContent = n === 0 && stage.meteorInterval ? '流星预警' : n === 0 && stage.wind ? '高空侧风' : n === 0 ? '本关路线' : DIFFICULTY_NAMES[stage.difficulty];
+        el('tutorial-title').textContent = n === 0 && stage.meteorInterval ? '看见「!」就离开光柱' : n === 0 && stage.wind ? '风在推着叶子，稳稳跳过去' : n === 0 ? routeHints[stage.route][0] : stage.difficulty === 'M' ? '云岛更小了，看准再起跳' : '跟着阳光，让小花一路盛开';
+        el('tutorial-copy').textContent = n === 0 && stage.meteorInterval ? '流星落点会提前标出；被砸中也会回到小花旁。' : n === 0 && stage.wind ? '空中有左右侧风；花朵依然会记住每座新云岛。' : n === 0 ? routeHints[stage.route][1] : stage.difficulty === 'M' ? '绒球走得更快；用叶子挥击，也可以从上方跳过。' : '没有时间限制，跌落也不会丢失阳光。';
       }
     }
   }
@@ -267,7 +280,11 @@ class Garden extends Phaser.Scene {
     for (const label of this.labels) { const p = label.getData('platform') as Platform; label.y = p.y - w.cameraY - 12; }
     for (let i = 0; i < 25; i++) {
       const x = (i * 173 + Math.sin(this.clock * .3 + i) * 14) % WIDTH, y = ((i * 113 - w.cameraY * .17 + this.clock * 5) % HEIGHT + HEIGHT) % HEIGHT;
-      g.fillStyle(0xfffbde, .7); g.fillCircle(x, y, i % 3 ? 1.5 : 2.5);
+      g.fillStyle(w.stage.biome.mote, .72);
+      if (w.stage.number % 4 === 0) g.fillPoints([{x,y:y-3},{x:x+2,y},{x,y:y+3},{x:x-2,y}], true);
+      else if (w.stage.number % 4 === 1) g.fillCircle(x, y, i % 3 ? 1.5 : 2.5);
+      else if (w.stage.number % 4 === 2) { g.fillEllipse(x, y, 4, 2); g.fillCircle(x + 2, y - 1, 1.2); }
+      else this.flower(g, x, y, 2.5, w.stage.biome.mote);
     }
     for (const p of w.platforms) {
       const y = p.y - w.cameraY; if (!p.alive || y < -100 || y > HEIGHT + 100) continue;
@@ -308,6 +325,22 @@ class Garden extends Phaser.Scene {
       g.fillStyle(0xf7d88d,.14); g.fillCircle(c.x,y,24); g.fillStyle(0xfbe6a5,.35); g.fillCircle(c.x,y,15);
       g.lineStyle(1,0xd4ac62); g.strokeCircle(c.x,y,8); g.fillStyle(0xffedb5); g.fillCircle(c.x,y,7);
       g.fillStyle(0xd9b069); g.fillPoints([{x:c.x,y:y-6},{x:c.x+2,y:y-2},{x:c.x+6,y},{x:c.x+2,y:y+2},{x:c.x,y:y+6},{x:c.x-2,y:y+2},{x:c.x-6,y},{x:c.x-2,y:y-2}],true);
+    }
+    for (const meteor of w.meteors) {
+      if (meteor.state === 'warning') {
+        const y = 40;
+        g.lineStyle(2, 0xf0bd87, .2); g.lineBetween(meteor.x, y + 15, meteor.x, HEIGHT - 24);
+        g.fillStyle(0xfff4dc, .92); g.fillCircle(meteor.x, y, 13);
+        g.lineStyle(1.5, 0xc7835f, .85); g.strokeCircle(meteor.x, y, 13 + Math.sin(this.clock * 2.6) * 1.2);
+        g.fillStyle(0xa86147, .9); g.fillRoundedRect(meteor.x - 1.5, y - 6, 3, 8, 1.5); g.fillCircle(meteor.x, y + 5, 1.7);
+      } else {
+        const y = meteor.y - w.cameraY;
+        if (y < -45 || y > HEIGHT + 45) continue;
+        g.lineStyle(8, 0xe5a77a, .17); g.lineBetween(meteor.x - 2, y - 33, meteor.x, y - 8);
+        g.lineStyle(3, 0xe2a16f, .58); g.lineBetween(meteor.x - 2, y - 28, meteor.x, y - 9);
+        g.fillStyle(0x9a7566); g.fillPoints([{x:meteor.x,y:y-12},{x:meteor.x+11,y:y-7},{x:meteor.x+13,y:y+3},{x:meteor.x+5,y:y+12},{x:meteor.x-7,y:y+10},{x:meteor.x-13,y:y+1},{x:meteor.x-9,y:y-8}], true);
+        g.fillStyle(0xc2967b, .9); g.fillCircle(meteor.x - 4, y - 3, 3); g.fillCircle(meteor.x + 5, y + 3, 2);
+      }
     }
     for (const e of w.enemies) {
       const y = e.y - w.cameraY + Math.sin(this.clock * 3 + e.phase) * 4; if (!e.alive || y < -40 || y > HEIGHT+40) continue;

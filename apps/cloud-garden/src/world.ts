@@ -1,4 +1,4 @@
-import { getStage, type Stage } from './stages';
+import { getStage, type RouteStyle, type Stage } from './stages';
 
 export const WIDTH = 960;
 export const HEIGHT = 600;
@@ -10,14 +10,28 @@ export const JUMP = -535;
 export const SPEED = 240;
 export interface Platform { x: number; y: number; w: number; breakable: boolean; alive: boolean; row: number }
 export interface Crystal { x: number; y: number; taken: boolean }
+export interface Meteor { x: number; y: number; age: number; vy: number; state: 'warning' | 'falling'; alive: boolean }
 export function makeWorld(stage: Stage = getStage(1)) {
   const platforms: Platform[] = [{ x: 75, y: stage.floor, w: 810, breakable: false, alive: true, row: 0 }];
   const crystals: Crystal[] = [];
   let seed = stage.number * 719 + 173;
   const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const routeOffset = (route: RouteStyle, row: number, phase: number) => {
+    const n = row + phase;
+    switch (route) {
+      case 'zigzag': return (row % 2 ? 1 : -1) * .68 + Math.sin(n * 1.7) * .18;
+      case 'crescent': return Math.sin(n * .62) * .82 + Math.sin(n * 1.13) * .12;
+      case 'switchback': return Math.sin(n * 1.38) * .64 + Math.sin(n * .43) * .26;
+      case 'spiral': return Math.sin(n * .78) * .72 + Math.cos(n * .36) * .24;
+      case 'stepping': return ([ -.72, -.28, .30, .74 ][(row + Math.floor(phase)) % 4]) + Math.sin(n) * .1;
+      case 'drift': return Math.sin(n * .38) * .78 + Math.sin(n * 1.22) * .16;
+      case 'cloud-hop': return Math.cos(n * .92) * .65 + Math.sin(n * .47) * .3;
+    }
+  };
   const positions = stage.number === 1 ? [170, 330, 490, 340, 190, 360, 520, 360, 200, 380] : Array.from({ length: stage.islands }, (_, i) => {
-    const center = 480 + Math.sin((i + stage.number * .7) * 1.12) * (stage.difficulty === 'H' ? 140 : 170) + (random() - .5) * 26;
-    return Math.round(center - stage.width / 2);
+    const amplitude = stage.difficulty === 'H' ? 98 : 148;
+    const center = 480 + routeOffset(stage.route, i + 1, stage.number * .31) * amplitude + (random() - .5) * 18;
+    return Math.round(Math.max(52, Math.min(WIDTH - 52 - stage.width, center - stage.width / 2)));
   });
   positions.forEach((x, i) => {
     const row = i + 1, y = stage.floor - row * stage.step, w = row === stage.islands ? 300 : stage.width;
@@ -36,12 +50,13 @@ export function canLand(oldBottom: number, newBottom: number, x: number, halfWid
 }
 export function clampX(x: number) { return Math.max(25, Math.min(WIDTH - 25, x)); }
 export interface Input { direction: number; jump: boolean; attack: boolean }
-export type Event = { type: 'jump' | 'land' | 'checkpoint' | 'collect' | 'break' | 'rescue' | 'enemy' | 'win'; x: number; y: number };
+export type Event = { type: 'jump' | 'land' | 'checkpoint' | 'collect' | 'break' | 'rescue' | 'enemy' | 'meteor-warning' | 'meteor-fall' | 'meteor-land' | 'meteor-hit' | 'win'; x: number; y: number; cause?: 'fall' | 'meteor' };
 export class Journey {
   stage: Stage;
   platforms: Platform[];
   crystals: Crystal[];
   enemies: { x: number; y: number; row: number; phase: number; alive: boolean }[];
+  meteors: Meteor[] = [];
   x = 285; y = FLOOR - 22; vx = 0; vy = 0;
   cameraY = FLOOR - HEIGHT + 95;
   checkpoint = { x: 285, y: FLOOR - 22, row: 0 };
@@ -50,8 +65,11 @@ export class Journey {
   elapsed = 0; invincible = 0; attackTime = 0; attackCooldown = 0;
   facing = 1; won = false; events: Event[] = [];
   private wasJump = false; private wasAttack = false;
+  private nextMeteorAt: number;
+  private meteorCount = 0;
   constructor(stageNumber = 1) {
     this.stage = getStage(stageNumber);
+    this.nextMeteorAt = this.stage.meteorInterval ?? Number.POSITIVE_INFINITY;
     const generated = makeWorld(this.stage);
     this.platforms = generated.platforms; this.crystals = generated.crystals;
     const first = this.platforms.find(p => p.row === 1)!;
@@ -64,13 +82,47 @@ export class Journey {
   }
   get wind() { return this.stage.wind * Math.sin(this.elapsed * .85 + this.stage.number); }
   releaseInput() { this.wasJump = false; this.wasAttack = false; this.jumpBuffer = 0; this.vx = 0; }
-  private emit(type: Event['type'], x = this.x, y = this.y) { this.events.push({ type, x, y }); }
-  rescue() {
+  private emit(type: Event['type'], x = this.x, y = this.y, cause?: Event['cause']) { this.events.push({ type, x, y, ...(cause ? { cause } : {}) }); }
+  rescue(cause: Event['cause'] = 'fall') {
     if (this.invincible > 0 || this.won) return;
     this.rescues++; this.x = this.checkpoint.x; this.y = this.checkpoint.y;
     this.vx = this.vy = 0; this.grounded = true; this.invincible = 2;
     this.cameraY = Math.min(this.stage.floor - HEIGHT + 95, this.y - 390);
-    this.emit('rescue');
+    this.emit('rescue', this.x, this.y, cause);
+  }
+  private stepMeteors(dt: number) {
+    const interval = this.stage.meteorInterval;
+    if (interval && this.elapsed >= this.nextMeteorAt) {
+      const offsets = [160, -160, 230, -230];
+      let x = clampX(this.x + offsets[this.meteorCount % offsets.length]);
+      for (let attempt = 1; attempt < offsets.length && Math.abs(x - this.x) < 72; attempt++) {
+        x = clampX(this.x + offsets[(this.meteorCount + attempt) % offsets.length]);
+      }
+      this.meteors.push({ x, y: this.cameraY + 38, age: 0, vy: 0, state: 'warning', alive: true });
+      this.emit('meteor-warning', x, this.cameraY + 38);
+      this.meteorCount++;
+      this.nextMeteorAt += interval;
+    }
+    for (const meteor of this.meteors) {
+      if (!meteor.alive) continue;
+      if (meteor.state === 'warning') {
+        meteor.age += dt;
+        if (meteor.age >= 1.4) {
+          meteor.state = 'falling'; meteor.y = this.cameraY + 24; meteor.vy = 170;
+          this.emit('meteor-fall', meteor.x, meteor.y);
+        }
+        continue;
+      }
+      const oldY = meteor.y;
+      meteor.vy += 720 * dt; meteor.y += meteor.vy * dt;
+      if (this.invincible <= 0 && Math.abs(meteor.x - this.x) < 34 && Math.abs(meteor.y - this.y) < 38) {
+        meteor.alive = false; this.emit('meteor-hit', meteor.x, meteor.y); this.rescue('meteor'); continue;
+      }
+      const landed = this.platforms.some(p => p.alive && meteor.x >= p.x - 12 && meteor.x <= p.x + p.w + 12 && oldY < p.y && meteor.y >= p.y);
+      if (landed) { meteor.alive = false; this.emit('meteor-land', meteor.x, meteor.y); continue; }
+      if (meteor.y > this.cameraY + HEIGHT + 40) meteor.alive = false;
+    }
+    this.meteors = this.meteors.filter(meteor => meteor.alive);
   }
   step(input: Input, dt: number) {
     this.events = [];
@@ -122,6 +174,7 @@ export class Journey {
         e.alive = false; this.score += 100; this.emit('enemy', e.x, e.y);
       } else if (Math.abs(e.x - this.x) < 33 && Math.abs(e.y - this.y) < 33) this.rescue();
     }
+    this.stepMeteors(dt);
     if (this.y > this.cameraY + HEIGHT + 55) this.rescue();
   }
 }

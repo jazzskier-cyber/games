@@ -76,6 +76,30 @@ test('campaign preserves all 21 requested difficulties and has 21 distinct route
   assert.ok(getStage(1).width > getStage(3).width && getStage(3).width > getStage(7).width);
   assert.ok(getStage(1).step < getStage(3).step && getStage(3).step < getStage(7).step);
   assert.ok(getStage(7).wind > 0 && getStage(3).wind === 0);
+  assert.equal(new Set(STAGES.map(s => s.biome.name)).size, 21, 'each level has its own named atmosphere');
+  assert.equal(new Set(STAGES.map(s => s.route)).size, 7, 'the climb uses several distinct route rhythms');
+  assert.deepEqual(STAGES.filter(s => s.meteorInterval).map(s => s.number), [6, 12, 16, 19, 21]);
+});
+
+test('meteor stages warn before a fall and return a hit player to the checkpoint', () => {
+  const clearStage = new Journey(5);
+  clearStage.elapsed = 40;
+  clearStage.step(idle, 1 / 60);
+  assert.equal(clearStage.meteors.length, 0);
+
+  const w = new Journey(6);
+  w.elapsed = w.stage.meteorInterval! - 1 / 60;
+  w.step(idle, 1 / 60);
+  assert.equal(w.events[0]?.type, 'meteor-warning');
+  assert.equal(w.meteors[0]?.state, 'warning');
+  for (let frame = 0; frame < 90 && w.meteors[0]?.state !== 'falling'; frame++) w.step(idle, 1 / 60);
+  const meteor = w.meteors[0]!;
+  assert.equal(meteor.state, 'falling');
+  meteor.y = w.y - 5; meteor.vy = 0; w.x = meteor.x; w.grounded = true; w.vy = 0;
+  w.step(idle, 1 / 60);
+  assert.equal(w.events.find(e => e.type === 'rescue')?.cause, 'meteor');
+  assert.equal(w.rescues, 1);
+  assert.equal(w.x, w.checkpoint.x);
 });
 
 test('checkpoint flower blooms once per newly reached island', () => {
