@@ -1,12 +1,13 @@
 import Phaser from 'phaser';
 import './style.css';
 import './map.css';
+import './items.css';
 import { WIDTH, HEIGHT, Journey, type Platform, type Event } from './world';
 import { STAGES, DIFFICULTY_NAMES, getStage, nextStage, readCampaign, completeStage, type RouteStyle } from './stages';
 
 const el = (id: string) => document.getElementById(id)!;
 const button = (id: string) => el(id) as HTMLButtonElement;
-const touch = { left: false, right: false, jump: false, attack: false };
+const touch = { left: false, right: false, jump: false, attack: false, item: false };
 // Vite's relative base keeps the same build deployable under a subdirectory.
 const assetBase = new URL('./assets/', document.baseURI);
 let sound = false;
@@ -79,7 +80,7 @@ class Garden extends Phaser.Scene {
     this.art = this.add.graphics(); this.root.add(this.art);
     this.traveler = this.add.image(285, 0, 'traveler').setOrigin(.5, .96).setDisplaySize(104, 104);
     this.root.add(this.traveler);
-    this.keys = this.input.keyboard!.addKeys('LEFT,RIGHT,UP,SPACE,A,D,W,J,P,ESC') as Record<string, Phaser.Input.Keyboard.Key>;
+    this.keys = this.input.keyboard!.addKeys('LEFT,RIGHT,UP,SPACE,A,D,W,J,K,P,ESC') as Record<string, Phaser.Input.Keyboard.Key>;
     this.input.keyboard!.addCapture(['SPACE', 'UP', 'LEFT', 'RIGHT']);
     this.keys.P.on('down', () => this.pause()); this.keys.ESC.on('down', () => this.pause());
     button('start').disabled = false; button('start').textContent = '开始这段旅程  ↗';
@@ -199,15 +200,23 @@ class Garden extends Phaser.Scene {
     if (event.type === 'break') { this.burst(event.x, event.y, 0x9cbdad); tone(360); this.toast('晶石碎开了！发现一小缕阳光。'); }
     if (event.type === 'enemy') { this.burst(event.x, event.y, 0xc6bbd0); tone(620); this.toast('绒球让开了，继续向上吧。'); }
     if (event.type === 'meteor-warning') this.toast('流星预警！离开「!」下方的光柱');
+    if (event.type === 'item-pickup') { const item = this.world.itemInventory; this.toast(item === 'feather' ? '捡到羽毛！按 K / 道具键，空中再冲跳一次。' : item === 'shield' ? '捡到护盾！按 K / 道具键，8 秒内挡住一次撞击。' : '捡到磁石！按 K / 道具键，8 秒内吸来附近阳光。'); tone(820, .15); }
+    if (event.type === 'item-feather') this.toast('羽毛冲跳！');
+    if (event.type === 'item-shield') this.toast('护盾展开：接下来 8 秒可挡一次撞击。');
+    if (event.type === 'item-magnet') this.toast('磁石启动：附近阳光会飞向你。');
+    if (event.type === 'item-block') { this.burst(event.x, event.y, 0xb7d7cb, 14); this.toast('护盾替你挡下了危险！'); }
     if (event.type === 'meteor-hit') { this.burst(event.x, event.y, 0xc88361, 10); tone(300, .22); }
     if (event.type === 'meteor-land') this.burst(event.x, event.y, 0xc99575, 7);
     if (event.type === 'rescue') { this.burst(event.x, event.y, 0xa9bf87, 18); this.toast(event.cause === 'meteor' ? '流星砸中啦！小花把你送回最近的花朵旁。' : '叶子接住你啦！小花在这里等你。'); tone(420, .25); }
     if (event.type === 'win') this.win();
   }
   private updateHUD() {
-    const w = this.world, stage = w.stage, stamp = [stage.number, w.highest, w.collected, w.score, this.mode].join(':');
+    const w = this.world, stage = w.stage, stamp = [stage.number, w.highest, w.collected, w.score, this.mode, w.itemInventory, Math.ceil(w.shieldTime), Math.ceil(w.magnetTime)].join(':');
     if (stamp === this.hudStamp) return; this.hudStamp = stamp;
     el('score').textContent = String(w.collected); el('height').textContent = w.highest + ' / ' + stage.islands; el('record').textContent = String(campaign.scores[stage.number] ?? 0);
+    const itemLabel = w.itemInventory === 'feather' ? '羽毛' : w.itemInventory === 'shield' ? '护盾' : w.itemInventory === 'magnet' ? '磁石' : '空';
+    el('item-slot').textContent = '道具：' + itemLabel + (w.itemInventory ? ' · K' : '');
+    el('item-slot').setAttribute('aria-label', w.itemInventory ? '已持有' + itemLabel + '，按 K 使用' : '没有携带道具');
     el('chapter-number').textContent = String(stage.number).padStart(2, '0'); el('chapter-name').textContent = stage.name;
     el('chapter-tag').textContent = '第 ' + stage.number + ' / ' + STAGES.length + ' 关 · ' + DIFFICULTY_NAMES[stage.difficulty];
     el('biome-name').textContent = stage.biome.name + (stage.meteorInterval ? ' · 流星雨' : stage.wind ? ' · 有风' : ' · 晴');
@@ -234,6 +243,7 @@ class Garden extends Phaser.Scene {
         direction: Number(this.keys.RIGHT.isDown || this.keys.D.isDown || touch.right) - Number(this.keys.LEFT.isDown || this.keys.A.isDown || touch.left),
         jump: this.keys.SPACE.isDown || this.keys.UP.isDown || this.keys.W.isDown || touch.jump,
         attack: this.keys.J.isDown || touch.attack,
+        item: this.keys.K.isDown || touch.item,
       }, dt);
       for (const event of this.world.events) this.event(event);
       this.updateHUD();
@@ -326,6 +336,17 @@ class Garden extends Phaser.Scene {
       g.lineStyle(1,0xd4ac62); g.strokeCircle(c.x,y,8); g.fillStyle(0xffedb5); g.fillCircle(c.x,y,7);
       g.fillStyle(0xd9b069); g.fillPoints([{x:c.x,y:y-6},{x:c.x+2,y:y-2},{x:c.x+6,y},{x:c.x+2,y:y+2},{x:c.x,y:y+6},{x:c.x-2,y:y+2},{x:c.x-6,y},{x:c.x-2,y:y-2}],true);
     }
+    for (const item of w.items) {
+      if (item.taken) continue;
+      const y = item.y - w.cameraY + Math.sin(this.clock * 3 + item.x) * 5;
+      if (y < -40 || y > HEIGHT + 40) continue;
+      const color = item.kind === 'feather' ? 0xf4dc9a : item.kind === 'shield' ? 0xb7d7cb : 0xc6b4e4;
+      g.fillStyle(color, .22); g.fillCircle(item.x, y, 21);
+      g.fillStyle(color, .95);
+      if (item.kind === 'feather') { g.fillEllipse(item.x, y, 9, 19); g.lineStyle(2, 0xfff7dd); g.lineBetween(item.x-3, y+7, item.x+3, y-7); }
+      else if (item.kind === 'shield') { g.fillPoints([{x:item.x,y:y-11},{x:item.x+9,y:y-6},{x:item.x+7,y:y+5},{x:item.x,y:y+12},{x:item.x-7,y:y+5},{x:item.x-9,y:y-6}], true); }
+      else { g.fillCircle(item.x-4,y,5); g.fillCircle(item.x+4,y,5); g.fillCircle(item.x,y+5,5); g.fillStyle(0x76628f); g.fillCircle(item.x,y,2); }
+    }
     for (const meteor of w.meteors) {
       if (meteor.state === 'warning') {
         const y = 40;
@@ -365,6 +386,8 @@ class Garden extends Phaser.Scene {
     this.traveler.setDisplaySize(104*(1+this.squash),104*(1-this.squash)).setAngle(this.reduceMotion?0:w.grounded?Math.sin(this.clock*12)*Math.abs(w.vx)/120:w.vx*.025);
     this.traveler.setAlpha(w.invincible>0?.6+Math.sin(this.clock*14)*.25:1);
     if (w.invincible>0) { g.lineStyle(2,0xb9cd8f,.5); g.strokeEllipse(w.x,py-10,88,103); }
+    if (w.shieldTime > 0) { g.lineStyle(3,0xb7d7cb,.68); g.strokeCircle(w.x,py-22,47); }
+    if (w.magnetTime > 0) { g.lineStyle(2,0xc6b4e4,.28); g.strokeCircle(w.x,py-18,175); }
     if (w.attackTime>0) {
       const a = 1-w.attackTime/.25; g.lineStyle(6,0xacc888,.65); g.beginPath(); g.arc(w.x,py-15,66,Math.PI*(1+a*.3),Math.PI*(1.9+a*.3)); g.strokePath();
       g.fillStyle(0xc0d496,.8); g.fillEllipse(w.x+w.facing*49,py-45,28,12);

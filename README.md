@@ -81,7 +81,7 @@ npm test
 npm run build
 ```
 
-云上花园目前包含 53 项自动测试，覆盖全部 21 关在 30fps 和 60fps 下正常输入通关、路线与天气配置、流星预警和检查点、碰撞及存档。界面、音效和手机触摸手感仍需实际浏览器试玩。
+云上花园目前包含 54 项自动测试，覆盖全部 21 关在 30fps 和 60fps 下正常输入通关、路线与天气配置、流星预警、羽毛/护盾/磁石道具、检查点、碰撞及存档。界面、音效和手机触摸手感仍需实际浏览器试玩。
 
 根目录是《云上花园》的 Vite 发布入口：`index.html` 加载 `apps/cloud-garden/src/` 中的游戏代码，根目录 `vite.config.ts` 使用该游戏的 `public/` 素材目录；`npm run build` 输出到根目录 `dist/`，符合游戏平台构建要求。仍可运行 `npm run build --workspace=cloud-garden` 单独构建游戏到 `apps/cloud-garden/dist/`。云上花园使用相对资源路径，支持子目录部署。
 

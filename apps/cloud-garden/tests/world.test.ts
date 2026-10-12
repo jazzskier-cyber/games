@@ -102,6 +102,27 @@ test('meteor stages warn before a fall and return a hit player to the checkpoint
   assert.equal(w.x, w.checkpoint.x);
 });
 
+test('collectible items give three distinct usable abilities', () => {
+  const feather = new Journey(3);
+  assert.ok(feather.items.some(item => item.kind === 'feather'));
+  feather.itemInventory = 'feather'; feather.y -= 100; feather.grounded = false; feather.vy = 100;
+  feather.step({ ...idle, item: true }, 1 / 60);
+  assert.equal(feather.itemInventory, null); assert.ok(feather.vy < -600);
+  assert.ok(feather.events.some(event => event.type === 'item-feather'));
+
+  const shield = new Journey(4);
+  shield.itemInventory = 'shield'; shield.step({ ...idle, item: true }, 1 / 60);
+  assert.ok(shield.shieldTime > 7.9);
+  const enemy = shield.enemies[0];
+  if (enemy) { shield.x = enemy.x; shield.y = enemy.y; shield.grounded = true; shield.step(idle, 1 / 60); assert.equal(shield.rescues, 0); assert.equal(shield.shieldTime, 0); }
+
+  const magnet = new Journey(5);
+  magnet.itemInventory = 'magnet'; magnet.step({ ...idle, item: true }, 1 / 60);
+  const crystal = magnet.crystals.find(c => !c.taken)!; crystal.x = magnet.x + 100; crystal.y = magnet.y;
+  magnet.step(idle, 1 / 60);
+  assert.ok(crystal.taken, 'magnet collects nearby sunlight without touching it');
+});
+
 test('checkpoint flower blooms once per newly reached island', () => {
   const w = new Journey();
   let blooms = 0;

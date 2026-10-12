@@ -11,6 +11,8 @@ export const SPEED = 240;
 export interface Platform { x: number; y: number; w: number; breakable: boolean; alive: boolean; row: number }
 export interface Crystal { x: number; y: number; taken: boolean }
 export interface Meteor { x: number; y: number; age: number; vy: number; state: 'warning' | 'falling'; alive: boolean }
+export type ItemKind = 'feather' | 'shield' | 'magnet';
+export interface Item { x: number; y: number; kind: ItemKind; taken: boolean }
 export function makeWorld(stage: Stage = getStage(1)) {
   const platforms: Platform[] = [{ x: 75, y: stage.floor, w: 810, breakable: false, alive: true, row: 0 }];
   const crystals: Crystal[] = [];
@@ -49,8 +51,8 @@ export function canLand(oldBottom: number, newBottom: number, x: number, halfWid
   return p.alive && oldBottom <= p.y + .5 && newBottom >= p.y && x + halfWidth > p.x && x - halfWidth < p.x + p.w;
 }
 export function clampX(x: number) { return Math.max(25, Math.min(WIDTH - 25, x)); }
-export interface Input { direction: number; jump: boolean; attack: boolean }
-export type Event = { type: 'jump' | 'land' | 'checkpoint' | 'collect' | 'break' | 'rescue' | 'enemy' | 'meteor-warning' | 'meteor-fall' | 'meteor-land' | 'meteor-hit' | 'win'; x: number; y: number; cause?: 'fall' | 'meteor' };
+export interface Input { direction: number; jump: boolean; attack: boolean; item?: boolean }
+export type Event = { type: 'jump' | 'land' | 'checkpoint' | 'collect' | 'break' | 'rescue' | 'enemy' | 'meteor-warning' | 'meteor-fall' | 'meteor-land' | 'meteor-hit' | 'item-pickup' | 'item-feather' | 'item-shield' | 'item-magnet' | 'item-block' | 'win'; x: number; y: number; cause?: 'fall' | 'meteor' };
 export class Journey {
   stage: Stage;
   platforms: Platform[];
@@ -63,8 +65,9 @@ export class Journey {
   grounded = true; coyote = .14; jumpBuffer = 0;
   score = 0; collected = 0; highest = 0; rescues = 0;
   elapsed = 0; invincible = 0; attackTime = 0; attackCooldown = 0;
+  items: Item[] = []; itemInventory: ItemKind | null = null; shieldTime = 0; magnetTime = 0;
   facing = 1; won = false; events: Event[] = [];
-  private wasJump = false; private wasAttack = false;
+  private wasJump = false; private wasAttack = false; private wasItem = false;
   private nextMeteorAt: number;
   private meteorCount = 0;
   constructor(stageNumber = 1) {
@@ -72,6 +75,9 @@ export class Journey {
     this.nextMeteorAt = this.stage.meteorInterval ?? Number.POSITIVE_INFINITY;
     const generated = makeWorld(this.stage);
     this.platforms = generated.platforms; this.crystals = generated.crystals;
+    const kinds: ItemKind[] = ['feather', 'shield', 'magnet'];
+    this.items = this.platforms.filter(p => !p.breakable && p.row > 1 && p.row < this.stage.islands && p.row % 3 === 0)
+      .map((p, i) => ({ x: p.x + p.w / 2, y: p.y - 52, kind: kinds[(this.stage.number + i) % kinds.length], taken: false }));
     const first = this.platforms.find(p => p.row === 1)!;
     this.x = stageNumber === 1 ? 285 : first.x + first.w / 2;
     this.y = this.stage.floor - 22; this.cameraY = this.stage.floor - HEIGHT + 95;
@@ -81,7 +87,7 @@ export class Journey {
       .map((p, i) => ({ x: p.x + p.w / 2, y: p.y - 25, row: p.row, phase: i * 2 + stageNumber, alive: true }));
   }
   get wind() { return this.stage.wind * Math.sin(this.elapsed * .85 + this.stage.number); }
-  releaseInput() { this.wasJump = false; this.wasAttack = false; this.jumpBuffer = 0; this.vx = 0; }
+  releaseInput() { this.wasJump = false; this.wasAttack = false; this.wasItem = false; this.jumpBuffer = 0; this.vx = 0; }
   private emit(type: Event['type'], x = this.x, y = this.y, cause?: Event['cause']) { this.events.push({ type, x, y, ...(cause ? { cause } : {}) }); }
   rescue(cause: Event['cause'] = 'fall') {
     if (this.invincible > 0 || this.won) return;
@@ -116,7 +122,10 @@ export class Journey {
       const oldY = meteor.y;
       meteor.vy += 720 * dt; meteor.y += meteor.vy * dt;
       if (this.invincible <= 0 && Math.abs(meteor.x - this.x) < 34 && Math.abs(meteor.y - this.y) < 38) {
-        meteor.alive = false; this.emit('meteor-hit', meteor.x, meteor.y); this.rescue('meteor'); continue;
+        meteor.alive = false; this.emit('meteor-hit', meteor.x, meteor.y);
+        if (this.shieldTime > 0) { this.shieldTime = 0; this.emit('item-block', meteor.x, meteor.y); }
+        else this.rescue('meteor');
+        continue;
       }
       const landed = this.platforms.some(p => p.alive && meteor.x >= p.x - 12 && meteor.x <= p.x + p.w + 12 && oldY < p.y && meteor.y >= p.y);
       if (landed) { meteor.alive = false; this.emit('meteor-land', meteor.x, meteor.y); continue; }
@@ -134,7 +143,14 @@ export class Journey {
     this.jumpBuffer -= dt;
     if (input.jump && !this.wasJump) this.jumpBuffer = .18;
     if (input.attack && !this.wasAttack && this.attackCooldown <= 0) { this.attackTime = .25; this.attackCooldown = .36; }
-    this.wasJump = input.jump; this.wasAttack = input.attack;
+    if (input.item && !this.wasItem && this.itemInventory) {
+      const used = this.itemInventory; this.itemInventory = null;
+      if (used === 'feather') { this.vy = -650; this.grounded = false; this.coyote = 0; this.invincible = Math.max(this.invincible, .55); this.emit('item-feather'); }
+      if (used === 'shield') { this.shieldTime = 8; this.emit('item-shield'); }
+      if (used === 'magnet') { this.magnetTime = 8; this.emit('item-magnet'); }
+    }
+    this.wasJump = input.jump; this.wasAttack = input.attack; this.wasItem = !!input.item;
+    this.shieldTime = Math.max(0, this.shieldTime - dt); this.magnetTime = Math.max(0, this.magnetTime - dt);
     if (this.jumpBuffer > 0 && this.coyote > 0) {
       this.vy = JUMP; this.grounded = false; this.coyote = this.jumpBuffer = 0; this.emit('jump');
     }
@@ -163,7 +179,10 @@ export class Journey {
       }
     }
     this.cameraY = Math.min(this.cameraY, this.y - 375);
-    for (const c of this.crystals) if (!c.taken && Math.abs(c.x - this.x) < 41 && Math.abs(c.y - this.y) < 48) {
+    for (const item of this.items) if (!item.taken && Math.abs(item.x - this.x) < 37 && Math.abs(item.y - this.y) < 45) {
+      item.taken = true; this.itemInventory = item.kind; this.emit('item-pickup', item.x, item.y);
+    }
+    for (const c of this.crystals) if (!c.taken && (Math.abs(c.x - this.x) < 41 && Math.abs(c.y - this.y) < 48 || this.magnetTime > 0 && Math.hypot(c.x - this.x, c.y - this.y) < 175)) {
       c.taken = true; this.collected++; this.score += 100; this.emit('collect', c.x, c.y);
     }
     for (const e of this.enemies) {
@@ -172,7 +191,10 @@ export class Journey {
       if (!e.alive) continue;
       if (this.attackTime > 0 && Math.abs(e.x - this.x) < 90 && Math.abs(e.y - this.y) < 75) {
         e.alive = false; this.score += 100; this.emit('enemy', e.x, e.y);
-      } else if (Math.abs(e.x - this.x) < 33 && Math.abs(e.y - this.y) < 33) this.rescue();
+      } else if (Math.abs(e.x - this.x) < 33 && Math.abs(e.y - this.y) < 33) {
+        if (this.shieldTime > 0) { this.shieldTime = 0; e.alive = false; this.emit('item-block', e.x, e.y); }
+        else this.rescue();
+      }
     }
     this.stepMeteors(dt);
     if (this.y > this.cameraY + HEIGHT + 55) this.rescue();
