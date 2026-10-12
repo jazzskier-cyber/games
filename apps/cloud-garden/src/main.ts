@@ -2,8 +2,10 @@ import Phaser from 'phaser';
 import './style.css';
 import './map.css';
 import './items.css';
+import './leaderboard.css';
 import { WIDTH, HEIGHT, Journey, type Platform, type Event } from './world';
 import { STAGES, DIFFICULTY_NAMES, getStage, nextStage, readCampaign, completeStage, type RouteStyle } from './stages';
+import { OneGpLeaderboard, isInsideOneGpPlayer, type BoardEntry, type BoardRun, type RoundStatus } from './leaderboard';
 
 const el = (id: string) => document.getElementById(id)!;
 const button = (id: string) => el(id) as HTMLButtonElement;
@@ -59,6 +61,8 @@ const gimmickHints = {
 } as const;
 class Garden extends Phaser.Scene {
   private world = new Journey(campaign.selected);
+  private leaderboard = new OneGpLeaderboard({ onStatus: status => this.leaderboardStatus(status) });
+  private leaderboardRound?: BoardRun;
   private mode: Mode = 'ready';
   private background!: Phaser.GameObjects.Image;
   private root!: Phaser.GameObjects.Container;
@@ -97,6 +101,10 @@ class Garden extends Phaser.Scene {
       if (this.mode === 'paused') this.pause();
       else if (this.mode === 'won') { const next = nextStage(this.world.stage.number); if (next) this.start(next); else this.openMap(); }
       else this.start();
+    };
+    button('leaderboard-retry').onclick = () => {
+      const round = this.leaderboardRound;
+      if (round && this.mode === 'won') void this.retryLeaderboard(round);
     };
     button('restart').onclick = () => { button('restart').blur(); this.start(); };
     button('pause').onclick = () => { button('pause').blur(); this.pause(); };
@@ -165,6 +173,9 @@ class Garden extends Phaser.Scene {
   private start(stageNumber = this.world.stage.number) {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     this.world = new Journey(stageNumber); campaign.selected = this.world.stage.number; this.saveCampaign();
+    this.leaderboardRound = isInsideOneGpPlayer() ? this.leaderboard.beginRound(stageNumber) : undefined;
+    el('leaderboard-panel').classList.add('hidden'); button('leaderboard-retry').classList.add('hidden');
+    el('leaderboard-list').replaceChildren(); el('leaderboard-neighbors').replaceChildren(); el('leaderboard-personal').textContent = '';
     this.mode = 'playing'; this.particles = []; this.squash = 0; this.toastLeft = 0;
     el('toast').classList.remove('show'); this.clearInput(); this.resetVisuals();
     el('overlay').classList.add('hidden'); el('tutorial').classList.remove('hidden');
@@ -194,8 +205,56 @@ class Garden extends Phaser.Scene {
     this.showOverlay(allCleared ? '整片云海，都开花了。' : '又一座花园，盛开了。',
       '收集了 ' + this.world.collected + ' 缕阳光，获得 ' + this.world.score + ' 分。' + (next ? '下一站：' + getStage(next).name + ' · ' + DIFFICULTY_NAMES[getStage(next).difficulty] + '。' : allCleared ? '21 座花园都记住了你的足迹！' : '已到旅程终点，也可以回地图补完其他花园。'),
       next ? '出发去第 ' + next + ' 关  ↗' : '打开旅程地图  ❀');
+    if (isInsideOneGpPlayer() && this.leaderboardRound) void this.settleLeaderboard(this.leaderboardRound, this.world.score);
     el('tutorial').classList.add('hidden'); button('pause').disabled = true;
     this.burst(this.world.x, this.world.y - 30, 0xe7b26d, 35); tone(880, .5);
+  }
+  private leaderboardStatus(status: RoundStatus) {
+    if (status.round !== this.leaderboardRound || this.mode !== 'won') return;
+    el('leaderboard-status').textContent = status.message ?? '排行榜暂时不可用，游戏可以继续。';
+    button('leaderboard-retry').classList.toggle('hidden', status.state !== 'error');
+    if (status.receipt) {
+      const best = status.receipt.isPersonalBest ? '个人新高' : status.receipt.personalBest !== undefined ? `个人最佳 ${status.receipt.personalBest}` : '已记录';
+      el('leaderboard-personal').textContent = `本关 ${status.receipt.submittedScore} 分 · ${best} · ${status.receipt.rank ? `第 ${status.receipt.rank} 名` : '排名读取中…'}`;
+    }
+  }
+  private async settleLeaderboard(round: BoardRun, score: number) {
+    el('leaderboard-panel').classList.remove('hidden');
+    el('leaderboard-status').textContent = '正在提交本关分数…';
+    try {
+      await this.leaderboard.settleRound(round, score);
+      if (round === this.leaderboardRound && this.mode === 'won') await this.refreshLeaderboard(round);
+    } catch { /* Ranking is optional; gameplay and local progress remain intact. */ }
+  }
+  private async retryLeaderboard(round: BoardRun) {
+    button('leaderboard-retry').disabled = true;
+    try {
+      await this.leaderboard.retryRound(round);
+      if (round === this.leaderboardRound && this.mode === 'won') await this.refreshLeaderboard(round);
+    } catch { /* The status callback offers another retry without interrupting play. */ }
+    finally { button('leaderboard-retry').disabled = false; }
+  }
+  private async refreshLeaderboard(round: BoardRun) {
+    try {
+      const [entries, personal] = await Promise.all([this.leaderboard.getStandings(), this.leaderboard.getPersonalRank()]);
+      if (round !== this.leaderboardRound || this.mode !== 'won') return;
+      this.renderLeaderboard(entries, personal.entry, personal.neighbors);
+    } catch {
+      if (round === this.leaderboardRound) el('leaderboard-status').textContent = '成绩已提交；暂时无法读取排行榜。';
+    }
+  }
+  private renderLeaderboard(entries: BoardEntry[], personal: BoardEntry | null, neighbors: BoardEntry[]) {
+    const render = (list: HTMLOListElement, rows: BoardEntry[]) => {
+      list.replaceChildren();
+      for (const entry of rows) {
+        const item = document.createElement('li');
+        item.textContent = `${entry.rank ?? '—'}. ${entry.player.displayName}${entry.isMe ? '（我）' : ''} · ${entry.score} 分`;
+        list.append(item);
+      }
+    };
+    render(el('leaderboard-list') as HTMLOListElement, entries);
+    render(el('leaderboard-neighbors') as HTMLOListElement, neighbors);
+    el('leaderboard-personal').textContent = personal ? `我的排名：第 ${personal.rank ?? '—'} 名 · ${personal.score} 分` : '还没有可显示的个人排名。';
   }
   private toast(message: string) { el('toast').textContent = message; el('toast').classList.add('show'); this.toastLeft = 3.5; }
   private burst(x: number, y: number, color: number, count = 12) {
