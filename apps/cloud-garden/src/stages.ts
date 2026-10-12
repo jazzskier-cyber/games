@@ -6,6 +6,8 @@ export const DIFFICULTY_PATTERN = REQUESTED_PATTERN.slice(0, STAGE_COUNT);
 export const DIFFICULTY_NAMES: Record<Difficulty, string> = { E: '简单', M: '中等', H: '困难' };
 const names = ['风起的地方', '蒲公英邮局', '苔石小径', '蘑菇转角', '午睡的草甸', '溪云石桥', '逆风山脊', '蜂蜜晴空', '藤蔓阶梯', '雾中花径', '棉花糖山谷', '追风峡口', '落日野餐', '星屑石林', '萤火回廊', '高空回旋', '月光花圃', '云海试炼', '晨露之巅', '春天的来信', '花园的回声'];
 export type RouteStyle = 'zigzag' | 'crescent' | 'switchback' | 'spiral' | 'stepping' | 'drift' | 'cloud-hop';
+export type Gimmick = 'bounce' | 'drift' | 'crumble' | 'meteor' | 'wind' | 'calm';
+const gimmicks: Gimmick[] = ['calm','drift','calm','bounce','crumble','meteor','wind','drift','bounce','crumble','calm','meteor','calm','drift','bounce','meteor','crumble','drift','meteor','bounce','meteor'];
 const routeStyles: RouteStyle[] = ['zigzag', 'crescent', 'switchback', 'spiral', 'stepping', 'drift', 'cloud-hop'];
 const biomes = [
   { name: '微风草甸', color: 0xf5f4e7, platform: 0xf4f2df, flower: 0xffdfb1, mote: 0xfff1bd },
@@ -38,7 +40,7 @@ const settings = {
 export const STAGES = [...DIFFICULTY_PATTERN].map((value, i) => {
   const difficulty = value as Difficulty, tuning = settings[difficulty];
   const meteorInterval = ({ 6: 12, 12: 10, 16: 8, 19: 11, 21: 9 } as Record<number, number>)[i + 1] ?? null;
-  return { ...tuning, number: i + 1, name: names[i], difficulty, route: routeStyles[i % routeStyles.length], meteorInterval, floor: tuning.islands * tuning.step + 420, biome: biomes[i] };
+  return { ...tuning, number: i + 1, name: names[i], difficulty, route: routeStyles[i % routeStyles.length], gimmick: gimmicks[i], meteorInterval, floor: tuning.islands * tuning.step + 420, biome: biomes[i] };
 });
 export type Stage = (typeof STAGES)[number];
 export function getStage(number: number) { return STAGES[Math.max(0, Math.min(STAGES.length - 1, Math.floor(number) - 1))] ?? STAGES[0]; }

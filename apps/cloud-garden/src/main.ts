@@ -49,6 +49,14 @@ const routeHints: Record<RouteStyle, [string, string]> = {
   drift: ['云路漂移', '平台会逐渐偏向一侧，留意落点。'],
   'cloud-hop': ['远近云岛', '远近交替的云岛，记得提前调整方向。'],
 };
+const gimmickHints = {
+  bounce: ['弹簧花', '踩上发光的弹簧花，会把你高高弹起！'],
+  drift: ['漂移云台', '云台会左右漂移；踩稳后顺着它的位置起跳。'],
+  crumble: ['碎云台', '裂纹云台落脚后很快会碎，别停留！'],
+  meteor: ['流星雨', '看到「!」和光柱就横向躲开。'],
+  wind: ['高空侧风', '空中有侧风，留意风线并提前修正方向。'],
+  calm: ['云间漫步', '收集阳光，跟着花朵记下的路线继续向上。'],
+} as const;
 class Garden extends Phaser.Scene {
   private world = new Journey(campaign.selected);
   private mode: Mode = 'ready';
@@ -125,8 +133,8 @@ class Garden extends Phaser.Scene {
       const cleared = campaign.scores[stage.number] !== undefined;
       entry.classList.toggle('cleared', cleared);
       if (stage.number === this.world.stage.number) entry.setAttribute('aria-current', 'true');
-      entry.innerHTML = '<span class="stage-choice-top"><b>' + String(stage.number).padStart(2, '0') + '</b><span>' + (cleared ? '❀' : '♧') + '</span></span><strong>' + stage.name + '</strong><small>' + DIFFICULTY_NAMES[stage.difficulty] + ' · ' + stage.islands + ' 座云岛</small><em>' + (cleared ? '已盛开 · ' + campaign.scores[stage.number] + ' 分' : stage.biome.name) + (stage.meteorInterval ? ' · ☄ 流星' : '') + '</em>';
-      entry.setAttribute('aria-label', '第 ' + stage.number + ' 关，' + stage.name + '，' + DIFFICULTY_NAMES[stage.difficulty] + (stage.meteorInterval ? '，有流星预警' : '') + (cleared ? '，已通关' : ''));
+      entry.innerHTML = '<span class="stage-choice-top"><b>' + String(stage.number).padStart(2, '0') + '</b><span>' + (cleared ? '❀' : '♧') + '</span></span><strong>' + stage.name + '</strong><small>' + DIFFICULTY_NAMES[stage.difficulty] + ' · ' + stage.islands + ' 座云岛</small><em>' + gimmickHints[stage.gimmick][0] + ' · ' + (cleared ? '已盛开 · ' + campaign.scores[stage.number] + ' 分' : stage.biome.name) + '</em>';
+      entry.setAttribute('aria-label', '第 ' + stage.number + ' 关，' + stage.name + '，' + DIFFICULTY_NAMES[stage.difficulty] + '，' + gimmickHints[stage.gimmick][0] + (cleared ? '，已通关' : ''));
       entry.onclick = () => { (el('stage-map') as HTMLDialogElement).close(); this.start(stage.number); };
       grid.append(entry);
     }
@@ -134,7 +142,7 @@ class Garden extends Phaser.Scene {
   }
   private showIntro() {
     const stage = this.world.stage;
-    const detail = stage.meteorInterval ? '☄ 本关有流星！看到「!」和光柱就横向躲开。' : stage.wind ? '高空有侧风，留意飘动的风线。' : routeHints[stage.route][1];
+    const detail = gimmickHints[stage.gimmick][1];
     if (stage.number !== 1) this.showOverlay(stage.name, '第 ' + stage.number + ' 关 · ' + DIFFICULTY_NAMES[stage.difficulty] + '。' + detail, '出发去这一关  ↗');
     el('best').textContent = '第 ' + stage.number + ' / ' + STAGES.length + ' 关 · ' + DIFFICULTY_NAMES[stage.difficulty] + ' · 小花自动记忆';
   }
@@ -143,7 +151,8 @@ class Garden extends Phaser.Scene {
     this.platformSprites.forEach(sprite => sprite.destroy()); this.platformSprites = [];
     this.labels.forEach(label => label.destroy()); this.labels = [];
     for (const p of this.world.platforms) if (!p.breakable) {
-      const sprite = this.add.image(p.x, p.y, 'island').setOrigin(0, 0).setDisplaySize(p.w, p.row === 0 ? 110 : 62).setTint(this.world.stage.biome.platform);
+      const tint = p.kind === 'bounce' ? 0xe9c8a5 : p.kind === 'drift' ? 0xc3dce0 : p.kind === 'crumble' ? 0xd8c2bf : this.world.stage.biome.platform;
+      const sprite = this.add.image(p.x, p.y, 'island').setOrigin(0, 0).setDisplaySize(p.w, p.row === 0 ? 110 : 62).setTint(tint);
       sprite.setData('platform', p); this.platformSprites.push(sprite); this.root.addAt(sprite, 0);
       if (p.row === 0) {
         const label = this.add.text(p.x + p.w - 25, p.y, '从这里出发', { fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif', fontSize: '10px', color: '#73815e', backgroundColor: '#faf5de', padding: { x: 7, y: 4 } }).setOrigin(1, 1);
@@ -194,6 +203,9 @@ class Garden extends Phaser.Scene {
   }
   private event(event: Event) {
     if (event.type === 'jump') { this.squash = -.13; tone(480); }
+    if (event.type === 'bounce') { this.squash = -.18; this.burst(event.x, event.y, 0xf4cd86, 10); this.toast('弹簧花！借力跳得更高啦'); tone(690, .2); }
+    if (event.type === 'crumble-warning') this.toast('裂纹云台开始碎啦，快跳！');
+    if (event.type === 'crumble') this.burst(event.x, event.y, 0xc9afa6, 8);
     if (event.type === 'land') { this.squash = .15; this.burst(event.x, event.y + 22, 0xc0c7a2, 5); }
     if (event.type === 'checkpoint') { this.burst(event.x, event.y, 0xefc99e, 8); if (this.world.highest === 1) this.toast('小花记住这里啦！跌落后会回到花朵身边。'); }
     if (event.type === 'collect') { this.burst(event.x, event.y, 0xeac778); tone(760, .18); }
@@ -219,7 +231,7 @@ class Garden extends Phaser.Scene {
     el('item-slot').setAttribute('aria-label', w.itemInventory ? '已持有' + itemLabel + '，按 K 使用' : '没有携带道具');
     el('chapter-number').textContent = String(stage.number).padStart(2, '0'); el('chapter-name').textContent = stage.name;
     el('chapter-tag').textContent = '第 ' + stage.number + ' / ' + STAGES.length + ' 关 · ' + DIFFICULTY_NAMES[stage.difficulty];
-    el('biome-name').textContent = stage.biome.name + (stage.meteorInterval ? ' · 流星雨' : stage.wind ? ' · 有风' : ' · 晴');
+    el('biome-name').textContent = stage.biome.name + ' · ' + gimmickHints[stage.gimmick][0];
     el('progress-fill').style.width = w.highest / stage.islands * 100 + '%';
     el('state-label').textContent = ({ ready: DIFFICULTY_NAMES[stage.difficulty] + ' · 小花陪你慢慢走', playing: DIFFICULTY_NAMES[stage.difficulty] + ' · 已唤醒 ' + w.highest + ' 朵小花', paused: '休息一下 · 小花在等你', won: '本关完成 · 花园已盛开' })[this.mode];
     button('pause').textContent = this.mode === 'paused' ? '▶' : 'Ⅱ'; button('pause').setAttribute('aria-label', this.mode === 'paused' ? '继续游戏' : '暂停游戏');
@@ -228,9 +240,9 @@ class Garden extends Phaser.Scene {
       this.lesson = n; el('tutorial-step').textContent = lessons[n][0]; el('tutorial-title').textContent = lessons[n][1];
       el('tutorial-copy').textContent = matchMedia('(pointer: coarse)').matches ? lessons[n][2].replace('空格 / W / ↑', '右下角「跳跃」').replace('← → / A、D', '左下角箭头').replace('按 J', '按「挥叶」') : lessons[n][2];
       if (stage.number > 1) {
-        el('tutorial-step').textContent = n === 0 && stage.meteorInterval ? '流星预警' : n === 0 && stage.wind ? '高空侧风' : n === 0 ? '本关路线' : DIFFICULTY_NAMES[stage.difficulty];
-        el('tutorial-title').textContent = n === 0 && stage.meteorInterval ? '看见「!」就离开光柱' : n === 0 && stage.wind ? '风在推着叶子，稳稳跳过去' : n === 0 ? routeHints[stage.route][0] : stage.difficulty === 'M' ? '云岛更小了，看准再起跳' : '跟着阳光，让小花一路盛开';
-        el('tutorial-copy').textContent = n === 0 && stage.meteorInterval ? '流星落点会提前标出；被砸中也会回到小花旁。' : n === 0 && stage.wind ? '空中有左右侧风；花朵依然会记住每座新云岛。' : n === 0 ? routeHints[stage.route][1] : stage.difficulty === 'M' ? '绒球走得更快；用叶子挥击，也可以从上方跳过。' : '没有时间限制，跌落也不会丢失阳光。';
+        el('tutorial-step').textContent = n === 0 ? gimmickHints[stage.gimmick][0] : DIFFICULTY_NAMES[stage.difficulty];
+        el('tutorial-title').textContent = n === 0 ? gimmickHints[stage.gimmick][0] : stage.difficulty === 'M' ? '云岛更小了，看准再起跳' : '跟着阳光，让小花一路盛开';
+        el('tutorial-copy').textContent = n === 0 ? gimmickHints[stage.gimmick][1] : stage.difficulty === 'M' ? '绒球走得更快；用叶子挥击，也可以从上方跳过。' : '没有时间限制，跌落也不会丢失阳光。';
       }
     }
   }
@@ -285,7 +297,8 @@ class Garden extends Phaser.Scene {
     g.clear();
     for (const sprite of this.platformSprites) {
       const p = sprite.getData('platform') as Platform;
-      sprite.y = p.y - w.cameraY; sprite.setVisible(sprite.y > -100 && sprite.y < HEIGHT + 100);
+      sprite.x = p.x; sprite.y = p.y - w.cameraY; sprite.setVisible(p.alive && sprite.y > -100 && sprite.y < HEIGHT + 100);
+      if (p.crumbleTime !== undefined && p.crumbleTime < .45) sprite.setAlpha(Math.sin(this.clock * 32) > 0 ? 1 : .35); else sprite.setAlpha(1);
     }
     for (const label of this.labels) { const p = label.getData('platform') as Platform; label.y = p.y - w.cameraY - 12; }
     for (let i = 0; i < 25; i++) {
@@ -320,6 +333,15 @@ class Garden extends Phaser.Scene {
             g.fillStyle(0x8c7658); g.fillCircle(fx-2,fy-1,1); g.fillCircle(fx+2,fy-1,1);
             g.lineStyle(1,0x8c7658); g.beginPath(); g.arc(fx,fy+1,2,0,Math.PI); g.strokePath();
           } else { g.fillStyle(0xbaca9c); g.fillEllipse(fx,fy+1,10,14); g.lineStyle(1,0x91aa72); g.lineBetween(fx,fy-4,fx,fy+6); }
+        }
+        if (p.kind === 'bounce') {
+          const bx = p.x + p.w / 2, pulse = 1 + Math.sin(this.clock * 5 + p.row) * .12;
+          g.fillStyle(0xf6d594,.35); g.fillCircle(bx,y-3,16*pulse); g.lineStyle(3,0xe4b56e,.85); g.lineBetween(bx,y-2,bx,y-13); this.flower(g,bx,y-17,7,0xf6d594);
+        } else if (p.kind === 'drift') {
+          g.lineStyle(2,0xf6fff3,.8); g.lineBetween(p.x+14,y-8,p.x+38,y-8); g.lineBetween(p.x+p.w-14,y-8,p.x+p.w-38,y-8);
+          g.fillTriangle(p.x+38,y-12,p.x+38,y-4,p.x+43,y-8); g.fillTriangle(p.x+p.w-38,y-12,p.x+p.w-38,y-4,p.x+p.w-43,y-8);
+        } else if (p.kind === 'crumble') {
+          g.lineStyle(2,0x987d78,.9); g.lineBetween(p.x+p.w*.48,y+1,p.x+p.w*.52,y+8); g.lineBetween(p.x+p.w*.52,y+8,p.x+p.w*.49,y+14); g.lineBetween(p.x+p.w*.52,y+8,p.x+p.w*.56,y+13);
         }
       }
     }

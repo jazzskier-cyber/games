@@ -8,7 +8,7 @@ export const LEVELS = 10;
 export const GRAVITY = 1150;
 export const JUMP = -535;
 export const SPEED = 240;
-export interface Platform { x: number; y: number; w: number; breakable: boolean; alive: boolean; row: number }
+export interface Platform { x: number; y: number; w: number; breakable: boolean; alive: boolean; row: number; kind?: 'bounce' | 'drift' | 'crumble'; baseX?: number; phase?: number; crumbleTime?: number }
 export interface Crystal { x: number; y: number; taken: boolean }
 export interface Meteor { x: number; y: number; age: number; vy: number; state: 'warning' | 'falling'; alive: boolean }
 export type ItemKind = 'feather' | 'shield' | 'magnet';
@@ -37,7 +37,10 @@ export function makeWorld(stage: Stage = getStage(1)) {
   });
   positions.forEach((x, i) => {
     const row = i + 1, y = stage.floor - row * stage.step, w = row === stage.islands ? 300 : stage.width;
-    platforms.push({ x, y, w, breakable: false, alive: true, row });
+    const kind = row === stage.islands ? undefined : stage.gimmick === 'bounce' && row % 3 === 0 ? 'bounce'
+      : stage.gimmick === 'drift' && row % 2 === 0 ? 'drift'
+      : stage.gimmick === 'crumble' && row % 2 === 0 ? 'crumble' : undefined;
+    platforms.push({ x, y, w, breakable: false, alive: true, row, ...(kind ? { kind, baseX: x, phase: row * .92 } : {}) });
     crystals.push({ x: x + w / 2, y: y - 33, taken: false });
     if (row >= 4 && row < stage.islands && row % (stage.difficulty === 'E' ? 2 : 3) === 0) {
       // Optional crystal outcrops never remove the main route when smashed.
@@ -52,7 +55,7 @@ export function canLand(oldBottom: number, newBottom: number, x: number, halfWid
 }
 export function clampX(x: number) { return Math.max(25, Math.min(WIDTH - 25, x)); }
 export interface Input { direction: number; jump: boolean; attack: boolean; item?: boolean }
-export type Event = { type: 'jump' | 'land' | 'checkpoint' | 'collect' | 'break' | 'rescue' | 'enemy' | 'meteor-warning' | 'meteor-fall' | 'meteor-land' | 'meteor-hit' | 'item-pickup' | 'item-feather' | 'item-shield' | 'item-magnet' | 'item-block' | 'win'; x: number; y: number; cause?: 'fall' | 'meteor' };
+export type Event = { type: 'jump' | 'land' | 'checkpoint' | 'collect' | 'break' | 'rescue' | 'enemy' | 'meteor-warning' | 'meteor-fall' | 'meteor-land' | 'meteor-hit' | 'item-pickup' | 'item-feather' | 'item-shield' | 'item-magnet' | 'item-block' | 'bounce' | 'crumble-warning' | 'crumble' | 'win'; x: number; y: number; cause?: 'fall' | 'meteor' };
 export class Journey {
   stage: Stage;
   platforms: Platform[];
@@ -139,6 +142,16 @@ export class Journey {
     dt = Math.min(dt, 1 / 30);
     this.elapsed += dt; this.invincible = Math.max(0, this.invincible - dt);
     this.attackTime = Math.max(0, this.attackTime - dt); this.attackCooldown -= dt;
+    const ride = this.grounded ? this.platforms.find(p => p.alive && !p.breakable && Math.abs(p.y - (this.y + 22)) < 1 && this.x + 19 > p.x && this.x - 19 < p.x + p.w) : undefined;
+    const rideX = ride?.x;
+    for (const p of this.platforms) {
+      if (p.kind === 'drift' && p.baseX !== undefined) p.x = Math.max(24, Math.min(WIDTH - p.w - 24, p.baseX + Math.sin(this.elapsed * .85 + (p.phase ?? 0)) * 74));
+      if (p.crumbleTime !== undefined) {
+        p.crumbleTime -= dt;
+        if (p.crumbleTime <= 0 && p.alive) { p.alive = false; this.emit('crumble', p.x + p.w / 2, p.y); }
+      }
+    }
+    if (ride && rideX !== undefined) this.x = clampX(this.x + ride.x - rideX);
     this.coyote = this.grounded ? .14 : this.coyote - dt;
     this.jumpBuffer -= dt;
     if (input.jump && !this.wasJump) this.jumpBuffer = .18;
@@ -168,9 +181,11 @@ export class Journey {
       if (this.vy >= 0 && canLand(oldY + 22, this.y + 22, this.x, 19, p)) {
         this.y = p.y - 22; this.vy = 0; this.grounded = true;
         if (!wasGrounded) this.emit('land');
-        if (!p.breakable && p.row > this.checkpoint.row) {
+        if (p.kind === 'bounce') { this.vy = -710; this.grounded = false; this.emit('bounce', this.x, p.y); }
+        if (p.kind === 'crumble' && p.crumbleTime === undefined) { p.crumbleTime = 1.05; this.emit('crumble-warning', this.x, p.y); }
+        if (!p.breakable && p.row > this.highest) this.highest = p.row;
+        if (!p.breakable && p.kind !== 'crumble' && p.row > this.checkpoint.row) {
           this.checkpoint = { x: Math.max(p.x + 35, Math.min(p.x + p.w - 35, this.x)), y: this.y, row: p.row };
-          this.highest = p.row;
           this.emit('checkpoint', p.x + p.w - 24, p.y - 20);
         }
         if (!p.breakable && p.row === this.stage.islands) { this.won = true; this.score += this.stage.bonus; this.emit('win'); }

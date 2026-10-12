@@ -123,6 +123,27 @@ test('collectible items give three distinct usable abilities', () => {
   assert.ok(crystal.taken, 'magnet collects nearby sunlight without touching it');
 });
 
+test('featured stage mechanics change how each island behaves', () => {
+  const spring = new Journey(4);
+  const flower = spring.platforms.find(p => p.kind === 'bounce')!;
+  spring.x = flower.x + flower.w / 2; spring.y = flower.y - 22.1; spring.vy = 10; spring.grounded = false;
+  spring.step(idle, 1 / 60);
+  assert.ok(spring.vy < -700, 'spring flower launches the player upward');
+  assert.ok(spring.events.some(event => event.type === 'bounce'));
+
+  const drifting = new Journey(2);
+  const cloud = drifting.platforms.find(p => p.kind === 'drift')!;
+  const initialX = cloud.x; drifting.step(idle, 1 / 60);
+  assert.notEqual(cloud.x, initialX, 'drifting cloud moves in the world simulation');
+
+  const brittle = new Journey(5);
+  const fragile = brittle.platforms.find(p => p.kind === 'crumble')!;
+  brittle.x = fragile.x + fragile.w / 2; brittle.y = fragile.y - 22.1; brittle.vy = 10; brittle.grounded = false;
+  brittle.step(idle, 1 / 60);
+  assert.ok(fragile.crumbleTime); assert.ok(brittle.events.some(event => event.type === 'crumble-warning'));
+  assert.notEqual(brittle.checkpoint.row, fragile.row, 'a fragile island never becomes a saved checkpoint');
+});
+
 test('checkpoint flower blooms once per newly reached island', () => {
   const w = new Journey();
   let blooms = 0;
