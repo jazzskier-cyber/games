@@ -67,6 +67,43 @@ test('world edges gently constrain movement', () => {
   assert.equal(clampX(-10), 25); assert.equal(clampX(WIDTH + 10), WIDTH - 25); assert.equal(clampX(240), 240);
 });
 
+test('a fresh run seed changes route layout while keeping its opening tutorial safe', () => {
+  const first = makeWorld(getStage(1), 17).platforms;
+  const second = makeWorld(getStage(1), 29).platforms;
+  assert.equal(first.find(p => p.row === 1)!.x, second.find(p => p.row === 1)!.x);
+  assert.notDeepEqual(first.map(p => p.x), second.map(p => p.x));
+});
+
+test('endless ascent streams new islands and ends only after three rescues are spent', () => {
+  const w = new Journey(21, 44, true);
+  assert.equal(w.highest, w.stage.islands);
+  assert.equal(w.rescueLives, 3);
+  w.step(idle, 1 / 60);
+  assert.ok(w.platforms.some(p => p.row === w.highest + 1));
+  assert.equal(w.won, false);
+  for (let i = 0; i < 3; i++) { w.invincible = 0; w.rescue(); }
+  assert.equal(w.rescueLives, 0);
+  assert.equal(w.events.some(e => e.type === 'game-over'), false);
+  w.invincible = 0; w.rescue();
+  assert.ok(w.events.some(e => e.type === 'game-over'));
+});
+
+test('seeded route variations remain completable across the full 21-stage journey', () => {
+  for (const seed of [7, 2026, 90125]) for (const stage of STAGES) {
+    const w = new Journey(stage.number, seed);
+    for (let frame = 0; frame < 60 * 150 && !w.won; frame++) {
+      const current = w.platforms.find(p => !p.breakable && p.row === w.highest)!;
+      const next = w.platforms.find(p => !p.breakable && p.row === w.highest + 1)!;
+      const aim = next.x + next.w / 2;
+      const takeoff = Math.max(current.x + 35, Math.min(current.x + current.w - 35, aim));
+      const target = w.grounded ? takeoff : aim;
+      const direction = Math.abs(target - w.x) > 5 ? Math.sign(target - w.x) : 0;
+      w.step({ direction, jump: w.grounded && Math.abs(w.x - takeoff) < 10 && frame % 2 === 0, attack: frame % 24 === 0 }, 1 / 60);
+    }
+    assert.ok(w.won, 'seed ' + seed + ' got stuck at stage ' + stage.number + ', island ' + w.highest);
+  }
+});
+
 test('campaign preserves all 21 requested difficulties and has 21 distinct routes', () => {
   assert.equal(STAGES.length, 21);
   assert.equal(DIFFICULTY_PATTERN, 'EEMMEMHEMMEHEMMHEHMEM');
@@ -142,6 +179,17 @@ test('featured stage mechanics change how each island behaves', () => {
   brittle.step(idle, 1 / 60);
   assert.ok(fragile.crumbleTime); assert.ok(brittle.events.some(event => event.type === 'crumble-warning'));
   assert.notEqual(brittle.checkpoint.row, fragile.row, 'a fragile island never becomes a saved checkpoint');
+});
+
+test('a broken crumble cloud reforms after a short delay so the route cannot soft-lock', () => {
+  const w = new Journey(5), cloud = w.platforms.find(p => p.kind === 'crumble')!;
+  cloud.crumbleTime = 1 / 60;
+  w.step(idle, 1 / 60);
+  assert.equal(cloud.alive, false);
+  assert.equal(cloud.respawnTime, 3);
+  for (let frame = 0; frame < 100 && !cloud.alive; frame++) w.step(idle, 1 / 30);
+  assert.equal(cloud.alive, true);
+  assert.ok(w.events.some(event => event.type === 'regrow'));
 });
 
 test('checkpoint flower blooms once per newly reached island', () => {

@@ -8,13 +8,14 @@
 
 | 游戏 | 简介 | 目录 | 技术 |
 | --- | --- | --- | --- |
-| **云上花园 · Cloud Garden** | 背着花园的旅行兽，在 21 关云岛中收集阳光。原创绘本风美术，中文界面，键盘与触摸操作。 | [apps/cloud-garden](apps/cloud-garden) | TypeScript、Vite、Phaser 3 |
+| **云上花园 · Cloud Garden** | 背着花园的旅行兽，攀过 21 关后继续挑战无尽云层；每局路线与道具都会变化。 | [apps/cloud-garden](apps/cloud-garden) | TypeScript、Vite、Phaser 3 |
 
 ### 云上花园
 
 ![云上花园的绘本背景](apps/cloud-garden/public/assets/cloud-garden.png)
 
-- 21 关完整难度顺序：`EEMMEMHEMMEHEMMHEHMEM`，E 简单、M 中等、H 困难。
+- Roguelike 连续旅程：21 关完整难度顺序 `EEMMEMHEMMEHEMMHEHMEM`，通关后衔接程序生成的无尽云层；E 简单、M 中等、H 困难。
+- 每局路线与道具类型随机变化；无尽段有 3 次救援机会，结束时排行榜记录全局累计总分。
 - 21 座云岛各有独立色调；路线采用左右交错、弧线、折返、螺旋等不同节奏，不再只是同一条路换关卡名。
 - 关卡不只换路线：指定关卡有弹簧花、左右漂移云台、限时碎云台、高空侧风或流星雨，地图会提前标出机制。
 - 可收集并主动使用羽毛冲跳、护盾和磁石；流星落点会提前显示警告光柱。
@@ -82,7 +83,7 @@ npm test
 npm run build
 ```
 
-云上花园目前包含 55 项自动测试，覆盖全部 21 关在 30fps 和 60fps 下正常输入通关、关卡专属机制、流星预警、羽毛/护盾/磁石道具、检查点、碰撞及存档。界面、音效和手机触摸手感仍需实际浏览器试玩。
+云上花园目前包含 69 项自动测试，覆盖随机种子下 21 关完整通关、碎云台重生与软锁保护、无尽云台生成与救援耗尽、关卡专属机制、流星预警、道具、检查点、累计总分和排行榜幂等结算。界面、音效和手机触摸手感仍需实际浏览器试玩。
 
 根目录是《云上花园》的 Vite 发布入口：`index.html` 加载 `apps/cloud-garden/src/` 中的游戏代码，根目录 `vite.config.ts` 使用该游戏的 `public/` 素材目录；`npm run build` 输出到根目录 `dist/`，符合游戏平台构建要求。仍可运行 `npm run build --workspace=cloud-garden` 单独构建游戏到 `apps/cloud-garden/dist/`。云上花园使用相对资源路径，支持子目录部署。
 
