@@ -148,7 +148,9 @@ class Garden extends Phaser.Scene {
       if (event.persisted && this.sessionEnded && isInsideOneGpPlayer() && (this.mode === 'playing' || this.mode === 'paused')) this.beginLeaderboardSession(this.world.stage.number);
     });
     el('loading').classList.add('hidden');
-    this.resetVisuals(); this.showIntro(); this.updateHUD();
+    this.resetVisuals();
+    if (import.meta.env.DEV && new URLSearchParams(location.search).get('mode') === 'endless') this.startEndless();
+    else { this.showIntro(); this.updateHUD(); }
   }
   private saveCampaign() {
     try { localStorage.setItem('cloud-garden-campaign', JSON.stringify(campaign)); } catch { /* Gameplay remains available without storage. */ }
@@ -229,7 +231,7 @@ class Garden extends Phaser.Scene {
     this.lastStageScore = 0;
     this.mode = 'playing'; this.particles = []; this.squash = 0; this.toastLeft = 0;
     this.clearInput(); this.resetVisuals(); el('overlay').classList.add('hidden'); el('tutorial').classList.remove('hidden');
-    button('pause').disabled = false; this.toast('无尽云层开启！三片叶子可以接住你。'); this.updateHUD();
+    button('pause').disabled = false; this.toast('无尽云层开启！有 3 次自动救援机会。'); this.updateHUD();
   }
   private restartCurrentStage() {
     if (this.world.endless) {
@@ -272,7 +274,7 @@ class Garden extends Phaser.Scene {
   private gameOver() {
     if (this.mode === 'gameover') return;
     this.syncJourneyScore(); this.mode = 'gameover'; this.clearInput();
-    this.showOverlay('叶子用完啦，旅程暂告一段落。', '无尽云层攀到第 ' + this.world.highest + ' 座 · 本局总分 ' + journeyScoreState.total + '。这份成绩会记进排行榜。', '重新开始一局  ↻');
+    this.showOverlay('救援机会用完，旅程暂告一段落。', '无尽云层攀到第 ' + this.world.highest + ' 座 · 本局总分 ' + journeyScoreState.total + '。这份成绩会记进排行榜。', '重新开始一局  ↻');
     button('pause').disabled = true; this.finishLeaderboardSession();
     el('tutorial').classList.add('hidden');
   }
@@ -394,7 +396,7 @@ class Garden extends Phaser.Scene {
     if (event.type === 'item-block') { this.burst(event.x, event.y, 0xb7d7cb, 14); this.toast('护盾替你挡下了危险！'); }
     if (event.type === 'meteor-hit') { this.burst(event.x, event.y, 0xc88361, 10); tone(300, .22); }
     if (event.type === 'meteor-land') this.burst(event.x, event.y, 0xc99575, 7);
-    if (event.type === 'rescue') { this.burst(event.x, event.y, 0xa9bf87, 18); this.toast(this.world.endless ? '叶片接住你啦！还剩 ' + this.world.rescueLives + ' 次救援。' : event.cause === 'meteor' ? '流星砸中啦！小花把你送回最近的花朵旁。' : '叶子接住你啦！小花在这里等你。'); tone(420, .25); }
+    if (event.type === 'rescue') { this.burst(event.x, event.y, 0xa9bf87, 18); this.toast(this.world.endless ? '自动救援成功！还剩 ' + this.world.rescueLives + ' 次机会。' : event.cause === 'meteor' ? '流星砸中啦！小花把你送回最近的花朵旁。' : '叶子接住你啦！小花在这里等你。'); tone(420, .25); }
     if (event.type === 'win') this.win();
     if (event.type === 'game-over') this.gameOver();
   }
@@ -411,7 +413,7 @@ class Garden extends Phaser.Scene {
     button('restart').textContent = w.endless ? '重开无尽云层 ↻' : '重玩本关 ↻';
     el('biome-name').textContent = (w.endless ? '随机云海' : stage.biome.name) + ' · ' + gimmickHints[stage.gimmick][0];
     el('progress-fill').style.width = (w.endless ? (w.highest % 10) / 10 : w.highest / stage.islands) * 100 + '%';
-    el('state-label').textContent = ({ ready: DIFFICULTY_NAMES[stage.difficulty] + ' · 小花陪你慢慢走', playing: w.endless ? '无尽云层 · 救援叶片 ' + w.rescueLives + ' / 3' : DIFFICULTY_NAMES[stage.difficulty] + ' · 已唤醒 ' + w.highest + ' 朵小花', paused: '休息一下 · 小花在等你', won: '本关完成 · 花园已盛开', gameover: '无尽旅程结束 · 总分 ' + journeyScoreState.total })[this.mode];
+    el('state-label').textContent = ({ ready: DIFFICULTY_NAMES[stage.difficulty] + ' · 小花陪你慢慢走', playing: w.endless ? '无尽云层 · 自动救援 ' + w.rescueLives + ' / 3' : DIFFICULTY_NAMES[stage.difficulty] + ' · 已唤醒 ' + w.highest + ' 朵小花', paused: '休息一下 · 小花在等你', won: '本关完成 · 花园已盛开', gameover: '无尽旅程结束 · 总分 ' + journeyScoreState.total })[this.mode];
     button('pause').textContent = this.mode === 'paused' ? '▶' : 'Ⅱ'; button('pause').setAttribute('aria-label', this.mode === 'paused' ? '继续游戏' : '暂停游戏');
     const n = w.highest === 0 ? 0 : w.highest === 1 ? 1 : w.highest === 2 ? 2 : w.highest === 3 ? 3 : w.highest < 6 ? 4 : w.highest < 9 ? 5 : 6;
     if (n !== this.lesson) {
@@ -525,7 +527,7 @@ class Garden extends Phaser.Scene {
       }
     }
     // A readable shimmer points toward the next safe island.
-    const next = w.platforms.find(p => !p.breakable && p.row === Math.min(w.stage.islands, w.highest + 1));
+    const next = w.platforms.find(p => !p.breakable && p.row === w.nextRow);
     if (next && this.mode === 'playing') {
       const y = next.y - w.cameraY - 20, x = Math.max(next.x + 30, Math.min(next.x + next.w - 30, w.x));
       g.lineStyle(2,0xfffae0,.6); g.beginPath(); g.moveTo(x-5,y-5); g.lineTo(x,y); g.lineTo(x+5,y-5); g.strokePath();

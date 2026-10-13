@@ -70,7 +70,7 @@ export class Journey {
   cameraY = FLOOR - HEIGHT + 95;
   checkpoint = { x: 285, y: FLOOR - 22, row: 0 };
   grounded = true; coyote = .14; jumpBuffer = 0;
-  score = 0; collected = 0; highest = 0; rescues = 0;
+  score = 0; collected = 0; highest = 0; currentRow = 0; rescues = 0;
   readonly runSeed: number;
   readonly endless: boolean;
   rescueLives = 3;
@@ -96,12 +96,13 @@ export class Journey {
     this.x = endless ? last.x + last.w / 2 : stageNumber === 1 ? 285 : first.x + first.w / 2;
     this.y = endless ? last.y - 22 : this.stage.floor - 22; this.cameraY = endless ? last.y - HEIGHT + 95 : this.stage.floor - HEIGHT + 95;
     this.checkpoint = { x: this.x, y: this.y, row: 0 };
-    if (endless) { this.highest = last.row; this.checkpoint.row = last.row; }
+    if (endless) { this.highest = last.row; this.currentRow = last.row; this.checkpoint.row = last.row; }
     const start = this.stage.difficulty === 'E' ? 7 : this.stage.difficulty === 'M' ? 4 : 3;
     this.enemies = this.platforms.filter(p => !p.breakable && p.row >= start && p.row < this.stage.islands && (p.row - start) % 2 === 0)
       .map((p, i) => ({ x: p.x + p.w / 2, y: p.y - 25, row: p.row, phase: i * 2 + stageNumber, alive: true }));
   }
   get wind() { return this.stage.wind * Math.sin(this.elapsed * .85 + this.stage.number); }
+  get nextRow() { return this.endless ? this.currentRow + 1 : Math.min(this.stage.islands, this.currentRow + 1); }
   releaseInput() { this.wasJump = false; this.wasAttack = false; this.wasItem = false; this.jumpBuffer = 0; this.vx = 0; }
   private emit(type: Event['type'], x = this.x, y = this.y, cause?: Event['cause']) { this.events.push({ type, x, y, ...(cause ? { cause } : {}) }); }
   rescue(cause: Event['cause'] = 'fall') {
@@ -109,6 +110,7 @@ export class Journey {
     if (this.endless && this.rescueLives <= 0) { this.emit('game-over', this.x, this.y, cause); return; }
     if (this.endless) this.rescueLives--;
     this.rescues++; this.x = this.checkpoint.x; this.y = this.checkpoint.y;
+    this.currentRow = this.checkpoint.row;
     this.vx = this.vy = 0; this.grounded = true; this.invincible = 2;
     this.cameraY = Math.min(this.stage.floor - HEIGHT + 95, this.y - 390);
     this.emit('rescue', this.x, this.y, cause);
@@ -200,6 +202,7 @@ export class Journey {
       }
       if (this.vy >= 0 && canLand(oldY + 22, this.y + 22, this.x, 19, p)) {
         this.y = p.y - 22; this.vy = 0; this.grounded = true;
+        this.currentRow = p.row;
         if (!wasGrounded) this.emit('land');
         if (p.kind === 'bounce') { this.vy = -710; this.grounded = false; this.emit('bounce', this.x, p.y); }
         if (p.kind === 'crumble' && p.crumbleTime === undefined) { p.crumbleTime = 1.05; this.emit('crumble-warning', this.x, p.y); }

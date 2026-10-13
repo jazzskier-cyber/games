@@ -88,6 +88,25 @@ test('endless ascent streams new islands and ends only after three rescues are s
   assert.ok(w.events.some(e => e.type === 'game-over'));
 });
 
+test('seeded endless openings provide reachable next islands for the first 40 ascents', () => {
+  for (const seed of [1, 7, 44, 2026, 90125]) {
+    const w = new Journey(21, seed, true);
+    for (let frame = 0; frame < 60 * 180 && w.currentRow < 52 && w.rescueLives > 0; frame++) {
+      const current = w.platforms.find(p => !p.breakable && p.row === w.currentRow)!;
+      const next = w.platforms.find(p => !p.breakable && p.row === w.nextRow);
+      if (!next) { w.step(idle, 1 / 60); continue; }
+      const aim = next.x + next.w / 2;
+      const takeoff = Math.max(current.x + 35, Math.min(current.x + current.w - 35, aim));
+      const target = w.grounded ? takeoff : aim;
+      const direction = Math.abs(target - w.x) > 5 ? Math.sign(target - w.x) : 0;
+      w.step({ direction, jump: w.grounded && Math.abs(w.x - takeoff) < 10 && frame % 2 === 0, attack: frame % 24 === 0 }, 1 / 60);
+    }
+    const current = w.platforms.find(p => !p.breakable && p.row === w.currentRow);
+    const next = w.platforms.find(p => !p.breakable && p.row === w.nextRow);
+    assert.ok(w.currentRow >= 52, 'seed ' + seed + ' stuck at current endless island ' + w.currentRow + ' (highest ' + w.highest + ') with ' + w.rescues + ' rescues; player=' + Math.round(w.x) + ',' + Math.round(w.y) + ' camera=' + Math.round(w.cameraY) + ' vy=' + Math.round(w.vy) + ' inv=' + w.invincible.toFixed(1) + ' grounded=' + w.grounded + ' checkpoint=' + w.checkpoint.row + '/' + Math.round(w.checkpoint.y) + ' current=' + (current ? `${current.x}/${current.y}/${current.alive}/${current.kind}` : 'missing') + ' next=' + (next ? `${next.x}/${next.y}/${next.alive}/${next.kind}` : 'missing'));
+  }
+});
+
 test('seeded route variations remain completable across the full 21-stage journey', () => {
   for (const seed of [7, 2026, 90125]) for (const stage of STAGES) {
     const w = new Journey(stage.number, seed);
