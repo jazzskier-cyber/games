@@ -30,6 +30,10 @@ export interface BoardRun {
   startPromise?: Promise<string>;
   settlementPromise?: Promise<SettlementReceipt>;
 }
+export interface PersistedBoardRun {
+  startKey: string; scoreKey: string; runId?: string; stage: number;
+  owner?: string; finalScore?: number;
+}
 export interface SettlementReceipt {
   accepted: boolean; submittedScore: number; personalBest?: number;
   isPersonalBest?: boolean; rank?: number | null; participants?: number;
@@ -105,10 +109,12 @@ export class OneGpLeaderboard {
     return round;
   }
 
-  async ensureRun(round: BoardRun): Promise<string> {
+  restoreRound(saved: PersistedBoardRun): BoardRun { return { ...saved }; }
+
+  async ensureRun(round: BoardRun, keepalive = false): Promise<string> {
     if (round.runId) return round.runId;
     if (round.startPromise) return round.startPromise;
-    const task = this.postWithRoundAuth<RunResponse>(round, `leaderboards/${LEADERBOARD_CONFIG.boardId}/runs`, undefined, round.startKey)
+    const task = this.postWithRoundAuth<RunResponse>(round, `leaderboards/${LEADERBOARD_CONFIG.boardId}/runs`, undefined, round.startKey, keepalive)
       .then(result => {
         if (!result.runId || typeof result.runId !== 'string') throw new Error('Leaderboard did not return a runId.');
         round.runId = result.runId;
@@ -120,24 +126,24 @@ export class OneGpLeaderboard {
     finally { if (round.startPromise === task) round.startPromise = undefined; }
   }
 
-  settleRound(round: BoardRun, score: number): Promise<SettlementReceipt> {
+  settleRound(round: BoardRun, score: number, keepalive = false): Promise<SettlementReceipt> {
     if (!Number.isSafeInteger(score) || score < LEADERBOARD_CONFIG.minScore || score > LEADERBOARD_CONFIG.maxScore) {
       return Promise.reject(new Error(`Score must be an integer between ${LEADERBOARD_CONFIG.minScore} and ${LEADERBOARD_CONFIG.maxScore}.`));
     }
     if (round.finalScore !== undefined && round.finalScore !== score) return Promise.reject(new Error('This round is already frozen with a different score.'));
     round.finalScore ??= score;
     if (round.settlementPromise) return round.settlementPromise;
-    this.report(round, 'settling', '正在提交本关分数…');
-    const task = this.settleFrozenRound(round);
+    this.report(round, 'settling', '正在提交旅程累计分数…');
+    const task = this.settleFrozenRound(round, keepalive);
     round.settlementPromise = task;
     void task.catch(() => { if (round.settlementPromise === task) round.settlementPromise = undefined; });
     return task;
   }
 
-  async retryRound(round: BoardRun): Promise<SettlementReceipt | undefined> {
-    await this.ensureRun(round);
+  async retryRound(round: BoardRun, keepalive = false): Promise<SettlementReceipt | undefined> {
+    await this.ensureRun(round, keepalive);
     if (round.finalScore === undefined) return undefined;
-    return this.settleRound(round, round.finalScore);
+    return this.settleRound(round, round.finalScore, keepalive);
   }
 
   async getStandings(): Promise<BoardEntry[]> {
@@ -150,16 +156,16 @@ export class OneGpLeaderboard {
     return { entry: result.entry ?? null, neighbors: Array.isArray(result.neighbors) ? result.neighbors : [] };
   }
 
-  private async settleFrozenRound(round: BoardRun): Promise<SettlementReceipt> {
+  private async settleFrozenRound(round: BoardRun, keepalive: boolean): Promise<SettlementReceipt> {
     try {
-      const runId = await this.ensureRun(round);
-      const receipt = await this.postWithRoundAuth<SettlementReceipt>(round, `runs/${encodeURIComponent(runId)}/score`, { score: round.finalScore }, round.scoreKey);
-      this.report(round, 'settled', `本关 ${receipt.rank ? `排名第 ${receipt.rank}` : '成绩已记录'}`, receipt);
+      const runId = await this.ensureRun(round, keepalive);
+      const receipt = await this.postWithRoundAuth<SettlementReceipt>(round, `runs/${encodeURIComponent(runId)}/score`, { score: round.finalScore }, round.scoreKey, keepalive);
+      this.report(round, 'settled', `旅程累计分 ${receipt.rank ? `排名第 ${receipt.rank}` : '已记录'}`, receipt);
       return receipt;
     } catch (error) {
       if (error instanceof LeaderboardError && error.code === 'ALREADY_SUBMITTED') {
         const receipt: SettlementReceipt = { accepted: true, submittedScore: round.finalScore! };
-        this.report(round, 'settled', '本关成绩已提交', receipt);
+        this.report(round, 'settled', '旅程累计分已提交', receipt);
         return receipt;
       }
       this.report(round, 'error', this.message(error));
@@ -167,10 +173,10 @@ export class OneGpLeaderboard {
     }
   }
 
-  private async postWithRoundAuth<T>(round: BoardRun, path: string, body: unknown, key: string): Promise<T> {
+  private async postWithRoundAuth<T>(round: BoardRun, path: string, body: unknown, key: string, keepalive = false): Promise<T> {
     const session = await this.getSession();
     round.owner ??= identity(session);
-    return this.withAuthRetry<T>(path, session, body, key, round.owner);
+    return this.withAuthRetry<T>(path, session, body, key, round.owner, keepalive);
   }
 
   private async getWithAuth<T>(path: string): Promise<T> {
@@ -178,12 +184,12 @@ export class OneGpLeaderboard {
     return this.withAuthRetry<T>(path, session, undefined, undefined, identity(session));
   }
 
-  private async withAuthRetry<T>(path: string, session: PlayerSession, body?: unknown, key?: string, expectedOwner?: string): Promise<T> {
+  private async withAuthRetry<T>(path: string, session: PlayerSession, body?: unknown, key?: string, expectedOwner?: string, keepalive = false): Promise<T> {
     let current = session;
     let refreshed = false;
     let transientRetries = 0;
     for (;;) {
-      try { return await this.request<T>(path, current, body, key); }
+      try { return await this.request<T>(path, current, body, key, keepalive); }
       catch (error) {
         if (error instanceof LeaderboardError && error.status === 401 && !refreshed) {
           refreshed = true;
@@ -202,11 +208,12 @@ export class OneGpLeaderboard {
     }
   }
 
-  private async request<T>(path: string, session: PlayerSession, body?: unknown, key?: string): Promise<T> {
+  private async request<T>(path: string, session: PlayerSession, body?: unknown, key?: string, keepalive = false): Promise<T> {
     let response: Response;
     try {
       response = await this.fetcher(`${LEADERBOARD_CONFIG.platformOrigin}/api/v1/${path}`, {
         method: key ? 'POST' : 'GET', credentials: 'omit',
+        ...(keepalive ? { keepalive: true } : {}),
         headers: { Authorization: `Bearer ${session.token}`, ...(key ? { 'Idempotency-Key': key } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(15000),

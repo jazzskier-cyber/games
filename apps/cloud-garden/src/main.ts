@@ -5,7 +5,8 @@ import './items.css';
 import './leaderboard.css';
 import { WIDTH, HEIGHT, Journey, type Platform, type Event } from './world';
 import { STAGES, DIFFICULTY_NAMES, getStage, nextStage, readCampaign, completeStage, type RouteStyle } from './stages';
-import { OneGpLeaderboard, isInsideOneGpPlayer, type BoardEntry, type BoardRun, type RoundStatus } from './leaderboard';
+import { OneGpLeaderboard, isInsideOneGpPlayer, type BoardEntry, type BoardRun, type PersistedBoardRun, type RoundStatus } from './leaderboard';
+import { addJourneyPoints, JOURNEY_SCORE_KEY, readJourneyScore, resetJourneyScore, type JourneyScoreState } from './journey-score';
 
 const el = (id: string) => document.getElementById(id)!;
 const button = (id: string) => el(id) as HTMLButtonElement;
@@ -15,12 +16,17 @@ const assetBase = new URL('./assets/', document.baseURI);
 let sound = false;
 let audio: AudioContext | undefined;
 let campaign = readCampaign(null);
+let journeyScoreState: JourneyScoreState = { total: 0, pendingRounds: [] };
 try {
   const raw = localStorage.getItem('cloud-garden-campaign');
   campaign = readCampaign(raw);
   const legacy = Number(localStorage.getItem('cloud-garden-best'));
   if (!raw && Number.isFinite(legacy) && legacy > 0) campaign.scores[1] = legacy;
+  journeyScoreState = readJourneyScore(localStorage.getItem(JOURNEY_SCORE_KEY));
 } catch { /* Session-only progress if storage is restricted. */ }
+function saveJourneyScore() {
+  try { localStorage.setItem(JOURNEY_SCORE_KEY, JSON.stringify(journeyScoreState)); } catch { /* Keep the in-memory total if storage is restricted. */ }
+}
 function tone(freq: number, duration = .12) {
   if (!sound) return;
   audio ??= new AudioContext();
@@ -63,6 +69,9 @@ class Garden extends Phaser.Scene {
   private world = new Journey(campaign.selected);
   private leaderboard = new OneGpLeaderboard({ onStatus: status => this.leaderboardStatus(status) });
   private leaderboardRound?: BoardRun;
+  private sessionEnded = false;
+  private lastStageScore = 0;
+  private pendingRetriesStarted = false;
   private mode: Mode = 'ready';
   private background!: Phaser.GameObjects.Image;
   private root!: Phaser.GameObjects.Container;
@@ -86,6 +95,12 @@ class Garden extends Phaser.Scene {
   }
   create() {
     if (!this.textures.exists('garden') || !this.textures.exists('traveler')) return;
+    const endButton = document.createElement('button');
+    endButton.id = 'end-session'; endButton.type = 'button'; endButton.className = 'text-button end-session hidden'; endButton.textContent = '结束并提交本次旅程积分';
+    el('best').before(endButton);
+    const journeyLabel = document.createElement('span'); journeyLabel.className = 'safe-note journey-total'; journeyLabel.append('❀ 旅程累计 ');
+    const journeyValue = document.createElement('b'); journeyValue.id = 'journey-score'; journeyValue.textContent = String(journeyScoreState.total);
+    journeyLabel.append(journeyValue, ' 分 · 小花记忆'); el('restart').before(journeyLabel);
     this.background = this.add.image(0, 0, 'garden').setOrigin(.5);
     this.root = this.add.container(0, 0);
     this.makeIslandTexture();
@@ -104,8 +119,9 @@ class Garden extends Phaser.Scene {
     };
     button('leaderboard-retry').onclick = () => {
       const round = this.leaderboardRound;
-      if (round && this.mode === 'won') void this.retryLeaderboard(round);
+      if (round && this.sessionEnded) void this.retryLeaderboard(round);
     };
+    button('end-session').onclick = () => { button('end-session').blur(); void this.finishLeaderboardSession(); };
     button('restart').onclick = () => { button('restart').blur(); this.start(); };
     button('pause').onclick = () => { button('pause').blur(); this.pause(); };
     button('map-open').disabled = false;
@@ -125,6 +141,10 @@ class Garden extends Phaser.Scene {
     });
     window.addEventListener('blur', () => { this.clearInput(); if (this.mode === 'playing') this.pause(); });
     document.addEventListener('visibilitychange', () => { if (document.hidden && this.mode === 'playing') this.pause(); });
+    window.addEventListener('pagehide', () => { this.finishLeaderboardSession(true); });
+    window.addEventListener('pageshow', event => {
+      if (event.persisted && this.sessionEnded && isInsideOneGpPlayer() && (this.mode === 'playing' || this.mode === 'paused')) this.beginLeaderboardSession(this.world.stage.number);
+    });
     el('loading').classList.add('hidden');
     this.resetVisuals(); this.showIntro(); this.updateHUD();
   }
@@ -135,7 +155,7 @@ class Garden extends Phaser.Scene {
     if (this.mode === 'playing') this.pause();
     this.clearInput(); this.input.keyboard!.enabled = false;
     const grid = el('stage-grid'); grid.replaceChildren();
-    el('map-summary').textContent = '已让 ' + Object.keys(campaign.scores).length + ' / ' + STAGES.length + ' 座花园盛开 · 随时自由选关';
+    el('map-summary').textContent = '已让 ' + Object.keys(campaign.scores).length + ' / ' + STAGES.length + ' 座花园盛开 · 旅程累计 ' + journeyScoreState.total + ' 分 · 选第 1 关会重开并清零';
     for (const stage of STAGES) {
       const entry = document.createElement('button'); entry.type = 'button'; entry.className = 'stage-choice difficulty-' + stage.difficulty;
       const cleared = campaign.scores[stage.number] !== undefined;
@@ -143,7 +163,7 @@ class Garden extends Phaser.Scene {
       if (stage.number === this.world.stage.number) entry.setAttribute('aria-current', 'true');
       entry.innerHTML = '<span class="stage-choice-top"><b>' + String(stage.number).padStart(2, '0') + '</b><span>' + (cleared ? '❀' : '♧') + '</span></span><strong>' + stage.name + '</strong><small>' + DIFFICULTY_NAMES[stage.difficulty] + ' · ' + stage.islands + ' 座云岛</small><em>' + gimmickHints[stage.gimmick][0] + ' · ' + (cleared ? '已盛开 · ' + campaign.scores[stage.number] + ' 分' : stage.biome.name) + '</em>';
       entry.setAttribute('aria-label', '第 ' + stage.number + ' 关，' + stage.name + '，' + DIFFICULTY_NAMES[stage.difficulty] + '，' + gimmickHints[stage.gimmick][0] + (cleared ? '，已通关' : ''));
-      entry.onclick = () => { (el('stage-map') as HTMLDialogElement).close(); this.start(stage.number); };
+      entry.onclick = () => { (el('stage-map') as HTMLDialogElement).close(); this.start(stage.number, stage.number === 1 && journeyScoreState.total > 0); };
       grid.append(entry);
     }
     (el('stage-map') as HTMLDialogElement).showModal();
@@ -170,10 +190,17 @@ class Garden extends Phaser.Scene {
     this.root.bringToTop(this.art); this.root.bringToTop(this.traveler);
     this.offsetX = 0; this.hudStamp = ''; this.lesson = -1;
   }
-  private start(stageNumber = this.world.stage.number) {
+  private start(stageNumber = this.world.stage.number, freshJourney = false) {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    if (freshJourney) {
+      if (this.leaderboardRound && !this.sessionEnded) void this.finishLeaderboardSession();
+      journeyScoreState = resetJourneyScore(journeyScoreState); saveJourneyScore();
+    }
     this.world = new Journey(stageNumber); campaign.selected = this.world.stage.number; this.saveCampaign();
-    this.leaderboardRound = isInsideOneGpPlayer() ? this.leaderboard.beginRound(stageNumber) : undefined;
+    this.lastStageScore = 0;
+    if (isInsideOneGpPlayer() && (!this.leaderboardRound || this.sessionEnded)) {
+      this.beginLeaderboardSession(stageNumber);
+    }
     el('leaderboard-panel').classList.add('hidden'); button('leaderboard-retry').classList.add('hidden');
     el('leaderboard-list').replaceChildren(); el('leaderboard-neighbors').replaceChildren(); el('leaderboard-personal').textContent = '';
     this.mode = 'playing'; this.particles = []; this.squash = 0; this.toastLeft = 0;
@@ -188,6 +215,7 @@ class Garden extends Phaser.Scene {
       this.showOverlay('歇一会儿，闻闻花香。', '小花记得你，准备好再继续。', '继续这段旅程  ↗');
       el('tutorial').classList.add('hidden');
     } else if (this.mode === 'paused') {
+      if (isInsideOneGpPlayer() && this.sessionEnded) this.beginLeaderboardSession(this.world.stage.number);
       this.mode = 'playing'; el('overlay').classList.add('hidden'); el('tutorial').classList.remove('hidden');
     }
     this.updateHUD();
@@ -195,52 +223,102 @@ class Garden extends Phaser.Scene {
   private showOverlay(title: string, copy: string, cta: string) {
     el('overlay-title').textContent = title; el('overlay-copy').textContent = copy; button('start').textContent = cta;
     el('overlay-label').textContent = '第 ' + this.world.stage.number + ' / ' + STAGES.length + ' 关 · ' + (this.mode === 'won' ? '花园已盛开' : this.world.stage.name);
-    el('best').textContent = '本关最佳：' + (campaign.scores[this.world.stage.number] ?? 0) + ' 分'; el('overlay').classList.remove('hidden');
+    el('best').textContent = '本关最佳：' + (campaign.scores[this.world.stage.number] ?? 0) + ' 分 · 旅程累计：' + journeyScoreState.total + ' 分';
+    button('end-session').classList.toggle('hidden', !isInsideOneGpPlayer() || (this.mode !== 'paused' && this.mode !== 'won') || this.sessionEnded);
+    el('overlay').classList.remove('hidden');
   }
   private win() {
+    this.syncJourneyScore();
     this.mode = 'won'; this.clearInput();
     campaign = completeStage(campaign, this.world.stage.number, this.world.score); this.saveCampaign();
     const next = nextStage(this.world.stage.number);
     const allCleared = Object.keys(campaign.scores).length === STAGES.length;
     this.showOverlay(allCleared ? '整片云海，都开花了。' : '又一座花园，盛开了。',
-      '收集了 ' + this.world.collected + ' 缕阳光，获得 ' + this.world.score + ' 分。' + (next ? '下一站：' + getStage(next).name + ' · ' + DIFFICULTY_NAMES[getStage(next).difficulty] + '。' : allCleared ? '21 座花园都记住了你的足迹！' : '已到旅程终点，也可以回地图补完其他花园。'),
+      '本关获得 ' + this.world.score + ' 分，旅程累计 ' + journeyScoreState.total + ' 分。' + (next ? '下一站：' + getStage(next).name + ' · ' + DIFFICULTY_NAMES[getStage(next).difficulty] + '。' : allCleared ? '21 座花园都记住了你的足迹！' : '已到旅程终点，也可以回地图补完其他花园。'),
       next ? '出发去第 ' + next + ' 关  ↗' : '打开旅程地图  ❀');
-    if (isInsideOneGpPlayer() && this.leaderboardRound) void this.settleLeaderboard(this.leaderboardRound, this.world.score);
     el('tutorial').classList.add('hidden'); button('pause').disabled = true;
     this.burst(this.world.x, this.world.y - 30, 0xe7b26d, 35); tone(880, .5);
   }
   private leaderboardStatus(status: RoundStatus) {
-    if (status.round !== this.leaderboardRound || this.mode !== 'won') return;
+    if (status.round !== this.leaderboardRound || !this.sessionEnded) return;
     el('leaderboard-status').textContent = status.message ?? '排行榜暂时不可用，游戏可以继续。';
     button('leaderboard-retry').classList.toggle('hidden', status.state !== 'error');
     if (status.receipt) {
       const best = status.receipt.isPersonalBest ? '个人新高' : status.receipt.personalBest !== undefined ? `个人最佳 ${status.receipt.personalBest}` : '已记录';
-      el('leaderboard-personal').textContent = `本关 ${status.receipt.submittedScore} 分 · ${best} · ${status.receipt.rank ? `第 ${status.receipt.rank} 名` : '排名读取中…'}`;
+      el('leaderboard-personal').textContent = `旅程累计 ${status.receipt.submittedScore} 分 · ${best} · ${status.receipt.rank ? `第 ${status.receipt.rank} 名` : '排名读取中…'}`;
     }
   }
-  private async settleLeaderboard(round: BoardRun, score: number) {
+  private async settleLeaderboard(round: BoardRun, score: number, keepalive = false) {
     el('leaderboard-panel').classList.remove('hidden');
-    el('leaderboard-status').textContent = '正在提交本关分数…';
+    el('leaderboard-status').textContent = '正在提交旅程累计分数…';
+    const request = this.leaderboard.settleRound(round, score, keepalive);
+    this.savePendingRound(round);
     try {
-      await this.leaderboard.settleRound(round, score);
-      if (round === this.leaderboardRound && this.mode === 'won') await this.refreshLeaderboard(round);
-    } catch { /* Ranking is optional; gameplay and local progress remain intact. */ }
+      await request;
+      this.removePendingRound(round.startKey);
+      if (!keepalive && round === this.leaderboardRound && this.sessionEnded) await this.refreshLeaderboard(round);
+    } catch { /* The saved total and idempotency keys are retried in a later session. */ }
   }
   private async retryLeaderboard(round: BoardRun) {
     button('leaderboard-retry').disabled = true;
     try {
       await this.leaderboard.retryRound(round);
-      if (round === this.leaderboardRound && this.mode === 'won') await this.refreshLeaderboard(round);
+      this.removePendingRound(round.startKey);
+      if (round === this.leaderboardRound && this.sessionEnded) await this.refreshLeaderboard(round);
     } catch { /* The status callback offers another retry without interrupting play. */ }
     finally { button('leaderboard-retry').disabled = false; }
+  }
+  private syncJourneyScore() {
+    const gained = this.world.score - this.lastStageScore;
+    if (gained > 0) { journeyScoreState = addJourneyPoints(journeyScoreState, gained); saveJourneyScore(); }
+    this.lastStageScore = this.world.score;
+  }
+  private savePendingRound(round: BoardRun) {
+    const snapshot: PersistedBoardRun = { startKey: round.startKey, scoreKey: round.scoreKey, stage: round.stage, ...(round.runId ? { runId: round.runId } : {}), ...(round.owner ? { owner: round.owner } : {}), ...(round.finalScore !== undefined ? { finalScore: round.finalScore } : {}) };
+    journeyScoreState = { ...journeyScoreState, pendingRounds: [...journeyScoreState.pendingRounds.filter(item => item.startKey !== round.startKey), snapshot] };
+    saveJourneyScore();
+  }
+  private removePendingRound(startKey: string) {
+    journeyScoreState = { ...journeyScoreState, pendingRounds: journeyScoreState.pendingRounds.filter(item => item.startKey !== startKey) };
+    saveJourneyScore();
+  }
+  private retryPendingRounds() {
+    if (this.pendingRetriesStarted || !isInsideOneGpPlayer()) return;
+    this.pendingRetriesStarted = true;
+    for (const saved of [...journeyScoreState.pendingRounds]) {
+      if (saved.finalScore === undefined) continue;
+      const round = this.leaderboard.restoreRound(saved);
+      void this.leaderboard.retryRound(round).then(() => this.removePendingRound(saved.startKey)).catch(error => {
+        if (error && typeof error === 'object' && ['RUN_EXPIRED', 'PLAYER_CHANGED'].includes(String((error as { code?: unknown }).code))) this.removePendingRound(saved.startKey);
+      });
+    }
+  }
+  private beginLeaderboardSession(stageNumber: number) {
+    this.sessionEnded = false;
+    this.leaderboardRound = this.leaderboard.beginRound(stageNumber);
+    this.retryPendingRounds();
+  }
+  private finishLeaderboardSession(keepalive = false) {
+    if (!this.leaderboardRound || !isInsideOneGpPlayer()) return;
+    if (this.sessionEnded) {
+      if (keepalive && this.leaderboardRound.finalScore !== undefined) {
+        const round = this.leaderboardRound;
+        this.savePendingRound(round);
+        void this.leaderboard.retryRound(round, true).then(() => this.removePendingRound(round.startKey)).catch(() => {});
+      }
+      return;
+    }
+    this.syncJourneyScore(); this.sessionEnded = true;
+    button('end-session').classList.add('hidden');
+    return this.settleLeaderboard(this.leaderboardRound, journeyScoreState.total, keepalive);
   }
   private async refreshLeaderboard(round: BoardRun) {
     try {
       const [entries, personal] = await Promise.all([this.leaderboard.getStandings(), this.leaderboard.getPersonalRank()]);
-      if (round !== this.leaderboardRound || this.mode !== 'won') return;
+      if (round !== this.leaderboardRound || !this.sessionEnded) return;
       this.renderLeaderboard(entries, personal.entry, personal.neighbors);
     } catch {
-      if (round === this.leaderboardRound) el('leaderboard-status').textContent = '成绩已提交；暂时无法读取排行榜。';
+      if (round === this.leaderboardRound && this.sessionEnded) el('leaderboard-status').textContent = '旅程分已提交；暂时无法读取排行榜。';
     }
   }
   private renderLeaderboard(entries: BoardEntry[], personal: BoardEntry | null, neighbors: BoardEntry[]) {
@@ -282,9 +360,10 @@ class Garden extends Phaser.Scene {
     if (event.type === 'win') this.win();
   }
   private updateHUD() {
+    this.syncJourneyScore();
     const w = this.world, stage = w.stage, stamp = [stage.number, w.highest, w.collected, w.score, this.mode, w.itemInventory, Math.ceil(w.shieldTime), Math.ceil(w.magnetTime)].join(':');
     if (stamp === this.hudStamp) return; this.hudStamp = stamp;
-    el('score').textContent = String(w.collected); el('height').textContent = w.highest + ' / ' + stage.islands; el('record').textContent = String(campaign.scores[stage.number] ?? 0);
+    el('score').textContent = String(w.collected); el('journey-score').textContent = String(journeyScoreState.total); el('height').textContent = w.highest + ' / ' + stage.islands; el('record').textContent = String(campaign.scores[stage.number] ?? 0);
     const itemLabel = w.itemInventory === 'feather' ? '羽毛' : w.itemInventory === 'shield' ? '护盾' : w.itemInventory === 'magnet' ? '磁石' : '空';
     el('item-slot').textContent = '道具：' + itemLabel + (w.itemInventory ? ' · K' : '');
     el('item-slot').setAttribute('aria-label', w.itemInventory ? '已持有' + itemLabel + '，按 K 使用' : '没有携带道具');

@@ -125,3 +125,17 @@ test('already-settled API response is treated idempotently', async () => {
   assert.equal(receipt.accepted, true);
   assert.equal(receipt.submittedScore, 777);
 });
+
+test('page-exit keepalive retries an unstarted run with the same stored keys', async () => {
+  const calls: Array<{ input: string; init?: RequestInit }> = [];
+  const { client } = harness(async (input, init) => {
+    calls.push({ input: String(input), init });
+    return String(input).endsWith('/runs') ? ok({ runId: 'exit-run' }) : ok({ accepted: true, submittedScore: 2860, personalBest: 2860, isPersonalBest: true, rank: 2, participants: 2 });
+  });
+  const round = client.restoreRound({ startKey: 'stable-start-key', scoreKey: 'stable-score-key', stage: 9 });
+  const receipt = await client.settleRound(round, 2860, true);
+  assert.equal(receipt.submittedScore, 2860);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(call => call.init?.keepalive === true));
+  assert.deepEqual(calls.map(call => new Headers(call.init?.headers).get('Idempotency-Key')), ['stable-start-key', 'stable-score-key']);
+});
