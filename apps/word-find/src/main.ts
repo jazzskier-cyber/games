@@ -248,7 +248,7 @@ function showCompletion(): void {
   else writeCycle({ scores: Array(levels.length).fill(0) as number[], total: 0 });
   const remaining = levels.map((item, index) => cycle.scores[index] ? '' : item.name).filter(Boolean);
   const displayScore = total;
-  const totalLabel = completeCycle ? `cycle points · best ${best}` : `cycle total · ${remaining.length} difficulty${remaining.length === 1 ? '' : 'ies'} left`;
+  const totalLabel = completeCycle ? `cycle points · best ${best}` : `cycle total · ${remaining.length} ${remaining.length === 1 ? 'difficulty' : 'difficulties'} left`;
   panel.innerHTML = `<div class="complete-card"><span class="complete-sparkle left">✦</span>${buddy(true)}<span class="complete-sparkle right">✦</span><h2>You found them all!</h2><p>A little victory for your day.</p><div class="score-card"><strong>${displayScore}</strong><span>${totalLabel}</span></div><p class="online-status" id="online-status" role="status">${onlineBoard ? 'Saving your accumulated points to the leaderboard…' : (completeCycle ? 'Your best cycle is saved on this device.' : `Level score ${score}. Best per difficulty is kept for your current cycle.`)}</p><button class="retry-score" id="retry-score" hidden>Try saving again</button>${onlineBoard ? `<a class="leaderboard-link" href="${leaderboardUrl}" target="_blank" rel="noopener">See the leaderboard ↗</a>` : ''}<button class="primary-button" id="again">One more little adventure <span>→</span></button><button class="complete-home" id="complete-home">Back to the collections</button></div>`;
   panel.querySelector('#again')?.addEventListener('click', startPuzzle);
   panel.querySelector('#complete-home')?.addEventListener('click', renderHome);
