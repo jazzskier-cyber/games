@@ -10,7 +10,7 @@ From the `games/` repository root:
 npm run dev --workspace=word-find
 ```
 
-Open the local URL printed by Vite. Choose a collection and a difficulty, then drag through letters. On a phone, touch and slide. The starter board is 8×8 with four short words placed across or down. The highest web difficulty uses a 10×10 board with eight words so the letters stay touchable on narrow phones.
+Open the local URL printed by Vite. Choose a collection and a difficulty, then drag through letters. On a phone, touch and slide. The starter board is 8×8 with four short words placed across or down. Medium boards include at least two diagonal words; hard boards include at least four and allow words in any direction, forward or backward. The highest web difficulty uses a 10×10 board with eight words so the letters stay touchable on narrow phones.
 
 Completing a board gives pocket points: 400, 600, or 800 base points by difficulty, plus up to 300 points for finishing sooner, minus 100 points per hint. The game never shows a countdown. Every completed board adds its points to the current browser's saved cycle total, including replayed difficulties. After each board, the accumulated total is submitted to the [Pocket points · accumulating total leaderboard](https://www.ai-made.games/games/word-find-6b0682c6/leaderboard?board=4c3da7c0-b408-47a0-a3e0-233182b0eaa2). When each of the three difficulties has been completed at least once, the full total is submitted and the cycle resets; a failed submission keeps the score on this device for retry. The leaderboard keeps each player's best score in each time range.
 

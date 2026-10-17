@@ -15,7 +15,7 @@ const themes: Theme[] = [
 ];
 const levels: Level[] = [
   { name: 'Easy peasy', detail: '4 short words', size: 8, count: 4, directions: [{ x: 1, y: 0 }, { x: 0, y: 1 }] },
-  { name: 'A little twist', detail: '6 hidden words', size: 10, count: 6, directions: [{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }] },
+  { name: 'A little twist', detail: '6 hidden words', size: 10, count: 6, directions: [{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: -1, y: 1 }, { x: -1, y: -1 }, { x: 1, y: -1 }] },
   { name: 'Feeling brave', detail: '8 tricky words', size: 10, count: 8, directions: [-1, 0, 1].flatMap(y => [-1, 0, 1].filter(x => x || y).map(x => ({ x, y }))) },
 ];
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -27,7 +27,7 @@ let activePath: Point[] = [], anchor: Point | null = null, hintPoint: Point | nu
 let hintTimer = 0, feedbackTimer = 0;
 let startedAt = 0, hintsUsed = 0;
 const onlineBoard = isInsideOneGpPlayer() ? new OneGpLeaderboard() : null;
-const leaderboardUrl = 'https://www.ai-made.games/games/word-find-6b0682c6/leaderboard?board=f8de4541-68e7-48ee-af68-ac37d6df6834';
+const leaderboardUrl = 'https://www.ai-made.games/games/word-find-6b0682c6/leaderboard?board=4c3da7c0-b408-47a0-a3e0-233182b0eaa2';
 let activeRound: BoardRun | null = null;
 
 type ScoreCycle = { scores: number[]; total: number };
@@ -64,6 +64,11 @@ function roundScore(): number {
 
 const random = (max: number) => Math.floor(Math.random() * max);
 const same = (a: Point, b: Point) => a.x === b.x && a.y === b.y;
+function instructionForLevel(): string {
+  if (levelIndex === 0) return "Across or down. You've got this!";
+  if (levelIndex === 1) return 'Across, down, or diagonally. Follow the letters!';
+  return 'Words can run in any direction, forward or backward.';
+}
 function pathBetween(start: Point, end: Point): Point[] {
   const dx = end.x - start.x, dy = end.y - start.y;
   if (dx && dy && Math.abs(dx) !== Math.abs(dy)) return [];
@@ -86,13 +91,18 @@ function buildGrid(): void {
   }
   try { localStorage.setItem(previousKey, JSON.stringify(targets)); } catch { /* Private browsing can disable storage. */ }
   const ordered = [...targets].sort((a, b) => b.length - a.length);
+  const diagonalQuota = levelIndex === 1 ? 2 : levelIndex === 2 ? 4 : 0;
+  const diagonalCandidates = ordered.filter(word => word.length <= level.size - 1);
+  const diagonalWords = new Set(diagonalQuota ? diagonalCandidates.slice(-diagonalQuota) : []);
+  const diagonalDirections = level.directions.filter(direction => direction.x !== 0 && direction.y !== 0);
   let complete = false;
   for (let retry = 0; retry < 30 && !complete; retry++) {
     grid = Array.from({ length: level.size }, () => Array(level.size).fill('') as string[]);
     placements = new Map();
     complete = ordered.every(word => {
+      const directions = diagonalWords.has(word) ? diagonalDirections : level.directions;
       for (let attempt = 0; attempt < 800; attempt++) {
-        const direction = level.directions[random(level.directions.length)];
+        const direction = directions[random(directions.length)];
         const start = { x: random(level.size), y: random(level.size) };
         const end = { x: start.x + direction.x * (word.length - 1), y: start.y + direction.y * (word.length - 1) };
         if (end.x < 0 || end.y < 0 || end.x >= level.size || end.y >= level.size) continue;
@@ -169,7 +179,7 @@ function renderGame(): void {
   const cycle = readCycle();
   const cycleTotal = cycle.total;
   const levelsPlayed = cycle.scores.filter(score => score > 0).length;
-  app.innerHTML = `<main class="app-shell game-screen">${header()}<div class="game-head"><button class="back-button" id="back">← &nbsp;Wander back</button><div class="game-title"><div><h1>${theme.name}</h1><p id="feedback">${levelIndex === 0 ? "Across or down. You've got this!" : 'Follow the letters. Find a little joy.'}</p></div><div class="game-buddy">${buddy()}</div></div><div class="progress-row"><div class="progress-stars" id="stars">${targets.map(() => '<span>●</span>').join('')}</div><span id="found-count">0 / ${targets.length} little discoveries</span></div><p class="cycle-score">Current cycle: <strong>${cycleTotal}</strong> points · ${levelsPlayed}/${levels.length} difficulties scored</p></div><section class="board-wrap" aria-label="Word search puzzle"><div class="letter-grid" id="letter-grid" style="--size:${size}">${boardSvg()}${grid.flatMap((row, y) => row.map((letter, x) => `<button type="button" class="cell" data-x="${x}" data-y="${y}" aria-label="Row ${y + 1}, column ${x + 1}, ${letter}"><span>${letter}</span></button>`)).join('')}</div></section><section class="words-section"><h2>A pocketful of words</h2><div class="word-list" style="--word-rows:${Math.ceil(targets.length / 2)}">${targets.map((word, i) => `<span class="word-pill" data-word="${word}" style="--pill:${themes[i % themes.length].color}">${word}</span>`).join('')}</div></section><div class="game-foot"><button class="hint-button" id="hint">A tiny hint, please</button><span>Take your time ♡</span></div><div class="completion" id="completion" hidden></div></main>`;
+  app.innerHTML = `<main class="app-shell game-screen">${header()}<div class="game-head"><button class="back-button" id="back">← &nbsp;Wander back</button><div class="game-title"><div><h1>${theme.name}</h1><p id="feedback">${instructionForLevel()}</p></div><div class="game-buddy">${buddy()}</div></div><div class="progress-row"><div class="progress-stars" id="stars">${targets.map(() => '<span>●</span>').join('')}</div><span id="found-count">0 / ${targets.length} little discoveries</span></div><p class="cycle-score">Current cycle: <strong>${cycleTotal}</strong> points · ${levelsPlayed}/${levels.length} difficulties scored</p></div><section class="board-wrap" aria-label="Word search puzzle"><div class="letter-grid" id="letter-grid" style="--size:${size}">${boardSvg()}${grid.flatMap((row, y) => row.map((letter, x) => `<button type="button" class="cell" data-x="${x}" data-y="${y}" aria-label="Row ${y + 1}, column ${x + 1}, ${letter}"><span>${letter}</span></button>`)).join('')}</div></section><section class="words-section"><h2>A pocketful of words</h2><div class="word-list" style="--word-rows:${Math.ceil(targets.length / 2)}">${targets.map((word, i) => `<span class="word-pill" data-word="${word}" style="--pill:${themes[i % themes.length].color}">${word}</span>`).join('')}</div></section><div class="game-foot"><button class="hint-button" id="hint">A tiny hint, please</button><span>Take your time ♡</span></div><div class="completion" id="completion" hidden></div></main>`;
   app.querySelector('#wordmark')?.addEventListener('click', renderHome);
   app.querySelector('#back')?.addEventListener('click', renderHome);
   app.querySelector('#hint')?.addEventListener('click', showHint);
@@ -188,7 +198,7 @@ function setFeedback(message: string, duration: number): void {
   clearTimeout(feedbackTimer);
   feedbackTimer = window.setTimeout(() => {
     const current = document.querySelector('#feedback');
-    if (current) current.textContent = levelIndex === 0 ? "Across or down. You've got this!" : 'Follow the letters. Find a little joy.';
+    if (current) current.textContent = instructionForLevel();
   }, duration);
 }
 function bindGrid(): void {
